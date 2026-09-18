@@ -7,9 +7,7 @@ export const stations = [
     brand: 'JET',
     address: 'North Terrace, Mildenhall, Bury Saint Edmunds, IP28 7AA',
     postcode: 'IP28 7AA',
-    lat: 52.3453236,
-    lng: 0.5108686,
-    fuels: ['unleaded', 'diesel', 'premium'],
+    fuels: ['E10', 'B7_STANDARD', 'E5'],
   },
   {
     id: 'fordham',
@@ -17,14 +15,13 @@ export const stations = [
     brand: 'JET',
     address: '31 Carter St, Fordham, Ely, CB7 5NG',
     postcode: 'CB7 5NG',
-    lat: 52.31181,
-    lng: 0.38787,
-    fuels: ['unleaded', 'diesel'],
+    fuels: ['E10', 'B7_STANDARD'],
   },
 ];
 
 export const fuelLabels = {
-  unleaded: 'Unleaded',
-  diesel: 'Diesel',
-  premium: 'Premium',
+  E10: 'Unleaded',
+  B7_STANDARD: 'Diesel',
+  E5: 'Premium Petrol',
+  B7_PREMIUM: 'Premium Diesel',
 };
