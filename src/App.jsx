@@ -58,7 +58,7 @@ export default function App() {
           <h1>Fuel Price Monitor</h1>
           <p>North Terrace & Fordham competitor pricing</p>
         </div>
-        <div className="live-pill"><span></span>{data?.mode === 'live' ? 'Live API' : 'Demo data'}</div>
+        <div className="live-pill"><span></span>{data?.mode === 'live' ? 'Live Fuel Finder' : 'Connecting…'}</div>
       </header>
 
       <StationTabs stations={stations} selectedId={siteId} onSelect={setSiteId} />
@@ -79,9 +79,6 @@ export default function App() {
         </label>
       </section>
 
-      {data?.mode === 'demo' && (
-        <div className="notice"><strong>Demo mode:</strong> prices below are fictional. Configure <code>VITE_COMPARISON_URL</code> to use your secure backend.</div>
-      )}
       {error && <div className="error">{error}</div>}
       {loading && <div className="loading">Loading comparison…</div>}
 
