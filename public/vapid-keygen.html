@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fuel Monitor – VAPID Key Generator</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 18px;color:#101828}
+    button{padding:10px 16px;border-radius:10px;border:0;background:#101828;color:#fff;font-weight:700;cursor:pointer}
+    textarea{width:100%;min-height:110px;margin:8px 0 20px;padding:10px;font-family:ui-monospace,monospace;font-size:12px}
+    .note{background:#fffaeb;border:1px solid #fedf89;padding:12px;border-radius:10px;margin:16px 0}
+  </style>
+</head>
+<body>
+  <h1>VAPID Key Generator</h1>
+  <p>This page generates the push-notification key pair locally in your browser. Nothing is uploaded anywhere.</p>
+  <div class="note"><strong>Keep the Private JWK secret.</strong> Put it only in Cloudflare as <code>VAPID_PRIVATE_JWK</code>.</div>
+  <button id="generate">Generate keys</button>
+  <h3>VAPID_PUBLIC_KEY</h3>
+  <textarea id="public" readonly></textarea>
+  <h3>VAPID_PRIVATE_JWK</h3>
+  <textarea id="private" readonly></textarea>
+  <script>
+    const b64urlToBytes = (value) => {
+      const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+      const raw = atob(padded);
+      return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+    };
+    const bytesToB64url = (bytes) => {
+      let binary = '';
+      bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    };
+    document.getElementById('generate').addEventListener('click', async () => {
+      const pair = await crypto.subtle.generateKey(
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        true,
+        ['sign', 'verify']
+      );
+      const pub = await crypto.subtle.exportKey('jwk', pair.publicKey);
+      const priv = await crypto.subtle.exportKey('jwk', pair.privateKey);
+      const x = b64urlToBytes(pub.x);
+      const y = b64urlToBytes(pub.y);
+      const uncompressed = new Uint8Array(65);
+      uncompressed[0] = 4;
+      uncompressed.set(x, 1);
+      uncompressed.set(y, 33);
+      document.getElementById('public').value = bytesToB64url(uncompressed);
+      document.getElementById('private').value = JSON.stringify({
+        kty: priv.kty,
+        crv: priv.crv,
+        x: priv.x,
+        y: priv.y,
+        d: priv.d,
+        ext: true,
+        key_ops: ['sign']
+      });
+    });
+  </script>
+</body>
+</html>
