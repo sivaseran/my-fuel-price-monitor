@@ -21,18 +21,26 @@ function normaliseLivePayload(payload) {
   }
 
   const ownPrices = {};
+  const ownPriceDetails = {};
+  const ownPriceObjects = Object.values(payload?.site?.prices || {});
+
   for (const [fuelType, item] of Object.entries(payload?.site?.prices || {})) {
     const price = Number(item?.price);
-    if (Number.isFinite(price)) ownPrices[fuelType] = price;
+    if (!Number.isFinite(price)) continue;
+    ownPrices[fuelType] = price;
+    ownPriceDetails[fuelType] = item;
   }
 
   const competitors = (payload?.competitors || []).map((station) => {
     const prices = {};
+    const priceDetails = {};
     const priceObjects = Object.values(station?.prices || {});
 
     for (const [fuelType, item] of Object.entries(station?.prices || {})) {
       const price = Number(item?.price);
-      if (Number.isFinite(price)) prices[fuelType] = price;
+      if (!Number.isFinite(price)) continue;
+      prices[fuelType] = price;
+      priceDetails[fuelType] = item;
     }
 
     return {
@@ -43,6 +51,7 @@ function normaliseLivePayload(payload) {
       postcode: station?.location?.postcode || '',
       updatedAt: latestTimestamp(priceObjects),
       prices,
+      priceDetails,
       isSupermarket: Boolean(station.isSupermarket),
       isMotorway: Boolean(station.isMotorway),
       location: station.location || null,
@@ -52,6 +61,8 @@ function normaliseLivePayload(payload) {
   return {
     mode: 'live',
     ownPrices,
+    ownPriceDetails,
+    ownUpdatedAt: latestTimestamp(ownPriceObjects),
     competitors,
     competitorCount: payload.competitorCount ?? competitors.length,
     generatedAt: payload.generatedAt || null,
