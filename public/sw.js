@@ -3,6 +3,13 @@ const API_BASE = 'https://fuel-price-monitor-api.5sivas01.workers.dev';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
+// A fetch handler helps browsers recognise this as an active PWA while keeping
+// all requests network-first so live fuel prices are never served from a stale cache.
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  event.respondWith(fetch(event.request));
+});
+
 self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
     let alert = {

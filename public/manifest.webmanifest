@@ -1,22 +1,25 @@
 {
+  "id": "/my-fuel-price-monitor/",
   "name": "Fuel Price Monitor",
   "short_name": "Fuel Monitor",
   "description": "Official Fuel Finder competitor price monitoring for North Terrace and Fordham Service Stations.",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/my-fuel-price-monitor/",
+  "scope": "/my-fuel-price-monitor/",
   "display": "standalone",
   "background_color": "#f5f7fa",
   "theme_color": "#101828",
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "/my-fuel-price-monitor/icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "/my-fuel-price-monitor/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
