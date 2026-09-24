@@ -39,7 +39,15 @@ function formatUpdated(value) {
   if (!value) return 'Update time unavailable';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Update time unavailable';
+
+  const now = new Date();
+  const sameLocalDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
   return `Updated ${new Intl.DateTimeFormat('en-GB', {
+    ...(sameLocalDay ? {} : { day: '2-digit', month: 'short' }),
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)}`;
@@ -78,13 +86,39 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setError('');
-    getSiteComparison(siteId, radius)
-      .then((value) => alive && setData(value))
-      .catch((err) => alive && setError(err.message || 'Could not load fuel prices.'))
-      .finally(() => alive && setLoading(false));
-    return () => { alive = false; };
+
+    const loadComparison = async ({ showLoading = false } = {}) => {
+      if (showLoading) setLoading(true);
+      setError('');
+      try {
+        const value = await getSiteComparison(siteId, radius);
+        if (alive) setData(value);
+      } catch (err) {
+        if (alive) setError(err.message || 'Could not load fuel prices.');
+      } finally {
+        if (alive && showLoading) setLoading(false);
+      }
+    };
+
+    loadComparison({ showLoading: true });
+
+    const intervalId = window.setInterval(() => {
+      loadComparison();
+    }, 5 * 60 * 1000);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') loadComparison();
+    };
+
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      alive = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [siteId, radius]);
 
   const selectFuelView = (fuel) => {
