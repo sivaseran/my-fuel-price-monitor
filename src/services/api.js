@@ -78,6 +78,7 @@ export async function getSiteComparison(siteId, radiusMiles = 10) {
 
   const response = await fetch(url, {
     headers: { Accept: 'application/json' },
+    cache: 'no-store',
   });
 
   let payload = null;
