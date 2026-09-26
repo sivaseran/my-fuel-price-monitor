@@ -96,3 +96,39 @@ export async function getSiteComparison(siteId, radiusMiles = 10) {
 
   return normaliseLivePayload(payload);
 }
+
+const DEFAULT_API_BASE = 'https://fuel-price-monitor-api.5sivas01.workers.dev';
+const apiBase = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE;
+
+export async function getSystemHealth() {
+  const response = await fetch(`${apiBase}/health`, {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Health request failed (${response.status}).`);
+  }
+  return payload;
+}
+
+export async function runAdminAction(pin, action) {
+  const response = await fetch(`${apiBase}/admin/pin/action`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    cache: 'no-store',
+    body: JSON.stringify({ pin, action }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(payload?.error || `Admin action failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
