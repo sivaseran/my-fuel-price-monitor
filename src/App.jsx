@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_RADIUS_MILES, fuelLabels, stations } from './config/stations';
-import { getSiteComparison } from './services/api';
+import { getSiteComparison, getSystemHealth, runAdminAction } from './services/api';
 import {
   disablePush,
   enablePush,
@@ -70,6 +70,12 @@ export default function App() {
   });
   const [pushBusy, setPushBusy] = useState(false);
   const [pushMessage, setPushMessage] = useState('');
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminPin, setAdminPin] = useState('');
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [adminMessage, setAdminMessage] = useState('');
+  const [adminResult, setAdminResult] = useState(null);
 
   const site = useMemo(() => stations.find((s) => s.id === siteId), [siteId]);
 
@@ -165,6 +171,68 @@ export default function App() {
     }
   };
 
+  const closeAdmin = () => {
+    setAdminOpen(false);
+    setAdminPin('');
+    setAdminUnlocked(false);
+    setAdminBusy(false);
+    setAdminMessage('');
+    setAdminResult(null);
+  };
+
+  const unlockAdmin = async () => {
+    if (!/^\d{4,8}$/.test(adminPin)) {
+      setAdminMessage('Enter your 4–8 digit admin PIN.');
+      return;
+    }
+
+    setAdminBusy(true);
+    setAdminMessage('');
+    try {
+      await runAdminAction(adminPin, 'check-pin');
+      setAdminUnlocked(true);
+      setAdminMessage('Admin tools unlocked.');
+      const health = await getSystemHealth();
+      setAdminResult(health);
+    } catch (err) {
+      setAdminUnlocked(false);
+      setAdminMessage(err.message || 'Could not unlock admin tools.');
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  const handleAdminAction = async (action) => {
+    if (!adminUnlocked || !adminPin) return;
+
+    const confirmations = {
+      'refresh-full-prices': 'Run the full national price refresh? This is a heavier recovery operation.',
+      'refresh-pfs': 'Refresh the full station/PFS dataset now?',
+    };
+    if (confirmations[action] && !window.confirm(confirmations[action])) return;
+
+    setAdminBusy(true);
+    setAdminMessage('');
+    try {
+      const result =
+        action === 'health'
+          ? await getSystemHealth()
+          : await runAdminAction(adminPin, action);
+      setAdminResult(result);
+      setAdminMessage('Action completed successfully.');
+
+      if (action === 'refresh-incremental' || action === 'refresh-full-prices') {
+        const refreshed = await getSiteComparison(siteId, radius);
+        setData(refreshed);
+      }
+    } catch (err) {
+      if (err.status === 401 || err.status === 429) setAdminUnlocked(false);
+      setAdminMessage(err.message || 'Admin action failed.');
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
   const updatedAt = data?.cache?.pricesFetchedAt || data?.generatedAt;
 
   return (
@@ -178,19 +246,24 @@ export default function App() {
           </p>
         </div>
 
-        <button
-          className={`notification-button ${pushState.subscribed ? 'active' : ''}`}
-          onClick={handlePushToggle}
-          disabled={pushBusy || pushState.permission === 'denied'}
-        >
-          {pushBusy
-            ? 'Please wait…'
-            : pushState.permission === 'denied'
-              ? '🔕 Alerts blocked'
-              : pushState.subscribed
-                ? '🔔 Alerts on'
-                : '🔔 Enable alerts'}
-        </button>
+        <div className="top-actions">
+          <button
+            className={`notification-button ${pushState.subscribed ? 'active' : ''}`}
+            onClick={handlePushToggle}
+            disabled={pushBusy || pushState.permission === 'denied'}
+          >
+            {pushBusy
+              ? 'Please wait…'
+              : pushState.permission === 'denied'
+                ? '🔕 Alerts blocked'
+                : pushState.subscribed
+                  ? '🔔 Alerts on'
+                  : '🔔 Enable alerts'}
+          </button>
+          <button className="admin-open-button" onClick={() => setAdminOpen(true)}>
+            🔒 Admin
+          </button>
+        </div>
       </header>
 
       {pushMessage && <div className="push-message">{pushMessage}</div>}
@@ -278,6 +351,78 @@ export default function App() {
             keyOnly={keyOnly}
           />
         </>
+      )}
+
+      {adminOpen && (
+        <div className="admin-overlay" role="presentation" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) closeAdmin();
+        }}>
+          <section className="admin-panel" role="dialog" aria-modal="true" aria-label="Admin tools">
+            <div className="admin-panel-heading">
+              <div>
+                <strong>Admin tools</strong>
+                <span>Fuel Price Monitor maintenance</span>
+              </div>
+              <button className="admin-close" onClick={closeAdmin} aria-label="Close admin tools">×</button>
+            </div>
+
+            {!adminUnlocked ? (
+              <div className="admin-unlock">
+                <label htmlFor="admin-pin">Admin PIN</label>
+                <input
+                  id="admin-pin"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={adminPin}
+                  maxLength={8}
+                  onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') unlockAdmin(); }}
+                  placeholder="Enter PIN"
+                />
+                <button className="admin-primary" onClick={unlockAdmin} disabled={adminBusy || !adminPin}>
+                  {adminBusy ? 'Checking…' : 'Unlock'}
+                </button>
+                <small>The PIN is checked by the Cloudflare Worker and is not saved in the app.</small>
+              </div>
+            ) : (
+              <>
+                <div className="admin-actions-grid">
+                  <button onClick={() => handleAdminAction('refresh-incremental')} disabled={adminBusy}>
+                    <strong>Refresh prices now</strong>
+                    <span>Incremental • recommended</span>
+                  </button>
+                  <button onClick={() => handleAdminAction('health')} disabled={adminBusy}>
+                    <strong>System health</strong>
+                    <span>Refresh status & OAuth</span>
+                  </button>
+                  <button onClick={() => handleAdminAction('test-push')} disabled={adminBusy}>
+                    <strong>Test notification</strong>
+                    <span>Send a push test</span>
+                  </button>
+                  <button onClick={() => handleAdminAction('refresh-pfs')} disabled={adminBusy}>
+                    <strong>Refresh stations</strong>
+                    <span>PFS dataset • heavier</span>
+                  </button>
+                  <button className="admin-recovery" onClick={() => handleAdminAction('refresh-full-prices')} disabled={adminBusy}>
+                    <strong>Full price refresh</strong>
+                    <span>Recovery only • heavy</span>
+                  </button>
+                </div>
+                {adminBusy && <div className="admin-working">Working… please keep this panel open.</div>}
+              </>
+            )}
+
+            {adminMessage && <div className={`admin-message ${adminMessage.includes('success') || adminMessage.includes('unlocked') ? 'success' : ''}`}>{adminMessage}</div>}
+
+            {adminResult && (
+              <details className="admin-result" open>
+                <summary>Latest result</summary>
+                <pre>{JSON.stringify(adminResult, null, 2)}</pre>
+              </details>
+            )}
+          </section>
+        </div>
       )}
     </main>
   );

@@ -377,3 +377,163 @@ select {
   .all-fuels-grid { margin-left: 0; margin-top: 7px; }
   .station-update { text-align: left; margin-left: 57px; }
 }
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.admin-open-button {
+  border: 1px solid #d0d5dd;
+  background: #101828;
+  color: #fff;
+  border-radius: 999px;
+  padding: 9px 13px;
+  min-height: 38px;
+  font-weight: 780;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(16, 24, 40, .58);
+  backdrop-filter: blur(3px);
+}
+
+.admin-panel {
+  width: min(100%, 560px);
+  max-height: min(88vh, 760px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #eaecf0;
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(16, 24, 40, .28);
+  padding: 16px;
+}
+
+.admin-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.admin-panel-heading strong { display: block; font-size: 18px; }
+.admin-panel-heading span { display: block; color: #667085; font-size: 12px; margin-top: 2px; }
+.admin-close {
+  border: 0;
+  background: #f2f4f7;
+  color: #344054;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-unlock {
+  display: grid;
+  gap: 9px;
+}
+.admin-unlock label { font-size: 12px; font-weight: 800; color: #344054; }
+.admin-unlock input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 20px;
+  letter-spacing: .15em;
+}
+.admin-unlock small { color: #667085; font-size: 11px; line-height: 1.4; }
+.admin-primary {
+  border: 0;
+  border-radius: 10px;
+  min-height: 44px;
+  background: #101828;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+.admin-primary:disabled { opacity: .6; cursor: default; }
+
+.admin-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+.admin-actions-grid button {
+  text-align: left;
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  min-height: 74px;
+}
+.admin-actions-grid button:hover { background: #f9fafb; }
+.admin-actions-grid button:disabled { opacity: .55; cursor: default; }
+.admin-actions-grid strong { display: block; color: #101828; font-size: 13px; }
+.admin-actions-grid span { display: block; color: #667085; font-size: 10px; margin-top: 4px; line-height: 1.35; }
+.admin-actions-grid .admin-recovery {
+  grid-column: 1 / -1;
+  border-color: #fedf89;
+  background: #fffaeb;
+}
+.admin-actions-grid .admin-recovery strong { color: #93370d; }
+
+.admin-working,
+.admin-message {
+  margin-top: 10px;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 12px;
+}
+.admin-working { background: #eef4ff; color: #3538cd; }
+.admin-message { background: #fef3f2; color: #b42318; }
+.admin-message.success { background: #ecfdf3; color: #027a48; }
+
+.admin-result {
+  margin-top: 11px;
+  border: 1px solid #eaecf0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.admin-result summary {
+  padding: 9px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  background: #f9fafb;
+}
+.admin-result pre {
+  margin: 0;
+  padding: 10px;
+  max-height: 280px;
+  overflow: auto;
+  background: #101828;
+  color: #f2f4f7;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 680px) {
+  .top-actions { gap: 6px; }
+  .admin-open-button { font-size: 11px; padding: 8px 10px; }
+  .admin-overlay { padding: 10px; align-items: end; }
+  .admin-panel { width: 100%; max-height: 90vh; border-radius: 16px 16px 10px 10px; }
+  .admin-actions-grid { grid-template-columns: 1fr; }
+  .admin-actions-grid .admin-recovery { grid-column: auto; }
+}
