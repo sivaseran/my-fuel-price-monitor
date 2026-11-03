@@ -555,3 +555,38 @@ select {
   .admin-actions-grid { grid-template-columns: 1fr; }
   .admin-actions-grid .admin-recovery { grid-column: auto; }
 }
+
+/* Notification deep-link: show the exact change before the live comparison. */
+.price-alert-panel {
+  border: 1px solid #b2ddff;
+  border-radius: 12px;
+  background: #eff8ff;
+  padding: 14px;
+  margin: 12px 0;
+  color: #102a43;
+}
+.price-alert-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.price-alert-heading strong { display: block; font-size: 16px; }
+.price-alert-heading span { display: block; font-size: 12px; margin-top: 4px; color: #475467; }
+.price-alert-heading button {
+  border: 0; border-radius: 8px; background: #d1e9ff;
+  padding: 6px 10px; cursor: pointer; color: #1849a9;
+}
+.price-alert-changes { display: grid; gap: 8px; }
+.price-alert-change {
+  border: 1px solid #d0e5f5; border-radius: 9px;
+  padding: 10px; background: white;
+}
+.price-alert-change > strong { display: block; font-size: 13px; }
+.price-alert-change > span { display: block; color: #667085; font-size: 12px; margin-top: 3px; }
+.price-alert-amounts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; margin-top: 7px; font-size: 14px; }
+.price-alert-amounts b { font-weight: 800; }
+.price-alert-drop { color: #067647; font-weight: 800; }
+.price-alert-rise { color: #b42318; font-weight: 800; }
+.price-alert-panel > small { display: block; margin-top: 10px; color: #475467; font-size: 11px; }
