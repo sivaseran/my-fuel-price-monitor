@@ -12,6 +12,17 @@ import SummaryCards from './components/SummaryCards';
 import CompetitorTable from './components/CompetitorTable';
 import './styles.css';
 
+const DEFAULT_SITE_KEY = 'fuel-monitor:default-site:v1';
+
+function readDefaultSite() {
+  try {
+    const saved = localStorage.getItem(DEFAULT_SITE_KEY);
+    return stations.some((station) => station.id === saved) ? saved : stations[0].id;
+  } catch {
+    return stations[0].id;
+  }
+}
+
 function priorityKey(siteId) {
   return `fuel-monitor:priority:${siteId}`;
 }
@@ -54,7 +65,8 @@ function formatUpdated(value) {
 }
 
 export default function App() {
-  const [siteId, setSiteId] = useState(stations[0].id);
+  const [defaultSiteId, setDefaultSiteId] = useState(readDefaultSite);
+  const [siteId, setSiteId] = useState(readDefaultSite);
   const [radius, setRadius] = useState(DEFAULT_RADIUS_MILES);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -162,6 +174,15 @@ export default function App() {
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, [siteId, radius]);
+
+  const makeCurrentSiteDefault = () => {
+    try {
+      localStorage.setItem(DEFAULT_SITE_KEY, siteId);
+      setDefaultSiteId(siteId);
+    } catch {
+      setError('Could not save your default station on this device. Check browser storage settings.');
+    }
+  };
 
   const selectFuelView = (fuel) => {
     setFuelView(fuel);
@@ -330,6 +351,18 @@ export default function App() {
         <div className="site-location">
           <strong>{site.name}</strong>
           <span>{site.address}</span>
+          {defaultSiteId === siteId ? (
+            <span className="default-site-status">★ Default on this device</span>
+          ) : (
+            <button
+              type="button"
+              className="default-site-button"
+              onClick={makeCurrentSiteDefault}
+              title="Open this station automatically on this device"
+            >
+              ☆ Set as default on this device
+            </button>
+          )}
         </div>
 
         <label className="radius-control">
