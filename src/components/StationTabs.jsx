@@ -7,9 +7,11 @@ export default function StationTabs({ stations, selectedId, onSelect }) {
           className={selectedId === station.id ? 'station-tab active' : 'station-tab'}
           onClick={() => onSelect(station.id)}
           role="tab"
+          title={station.name}
+          aria-label={station.name}
           aria-selected={selectedId === station.id}
         >
-          {station.name}
+          {station.shortName || station.name}
         </button>
       ))}
     </div>
