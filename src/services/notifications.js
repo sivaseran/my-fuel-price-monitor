@@ -1,4 +1,26 @@
 const API_BASE = 'https://fuel-price-monitor-api.5sivas01.workers.dev';
+const ALERTS_ENABLED_KEY = 'fuel-monitor:alerts-enabled:v1';
+const SYNC_INTERVAL_MS = 5 * 60 * 1000;
+
+let lastSyncedEndpoint = '';
+let lastSyncedAt = 0;
+let stateCheckPromise = null;
+
+function readAlertIntent() {
+  try {
+    return localStorage.getItem(ALERTS_ENABLED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function saveAlertIntent(enabled) {
+  try {
+    localStorage.setItem(ALERTS_ENABLED_KEY, String(enabled));
+  } catch {
+    // A working push subscription remains authoritative if storage is unavailable.
+  }
+}
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -31,28 +53,6 @@ export async function registerServiceWorker() {
   return registration;
 }
 
-export async function getPushState() {
-  if (!pushSupported()) {
-    return { supported: false, permission: 'unsupported', subscribed: false };
-  }
-
-  try {
-    const registration = await registerServiceWorker();
-    const subscription = await registration.pushManager.getSubscription();
-    return {
-      supported: true,
-      permission: Notification.permission,
-      subscribed: Boolean(subscription),
-    };
-  } catch {
-    return {
-      supported: true,
-      permission: Notification.permission,
-      subscribed: false,
-    };
-  }
-}
-
 async function getPushConfig() {
   const response = await fetch(`${API_BASE}/push/config`, {
     headers: { Accept: 'application/json' },
@@ -80,9 +80,7 @@ async function postSubscription(path, subscription, priorityBySite) {
     body: JSON.stringify({
       subscription: subscription?.toJSON ? subscription.toJSON() : subscription,
       priorityBySite,
-      rules: {
-        anyPriceChange: true,
-      },
+      rules: { anyPriceChange: true },
     }),
   });
 
@@ -93,6 +91,120 @@ async function postSubscription(path, subscription, priorityBySite) {
   return payload;
 }
 
+async function syncExistingSubscription(subscription, priorityBySite, force = false) {
+  if (!priorityBySite) return;
+  if (
+    !force &&
+    subscription.endpoint === lastSyncedEndpoint &&
+    Date.now() - lastSyncedAt < SYNC_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  await postSubscription('/push/subscribe', subscription, priorityBySite);
+  lastSyncedEndpoint = subscription.endpoint;
+  lastSyncedAt = Date.now();
+}
+
+async function checkPushState(priorityBySite) {
+  if (!pushSupported()) {
+    return {
+      supported: false,
+      permission: 'unsupported',
+      subscribed: false,
+      status: 'unsupported',
+    };
+  }
+
+  const permission = Notification.permission;
+  if (permission === 'denied') {
+    return {
+      supported: true,
+      permission,
+      subscribed: false,
+      status: 'blocked',
+    };
+  }
+
+  let registration;
+  let subscription;
+  try {
+    registration = await registerServiceWorker();
+    subscription = await registration.pushManager.getSubscription();
+  } catch (error) {
+    // A temporary service-worker failure must not be mistaken for alerts OFF.
+    return {
+      supported: true,
+      permission,
+      subscribed: false,
+      status: 'error',
+      error: error?.message || 'Could not check Android notification status.',
+    };
+  }
+
+  if (!subscription && readAlertIntent() && permission === 'granted') {
+    // Only restore a subscription when the user previously opted in.
+    // Never request notification permission automatically on app startup.
+    try {
+      const config = await getPushConfig();
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.publicKey),
+      });
+    } catch (error) {
+      return {
+        supported: true,
+        permission,
+        subscribed: false,
+        status: 'needs-action',
+        error: error?.message || 'Tap to reconnect alerts on this device.',
+      };
+    }
+  }
+
+  if (!subscription) {
+    return {
+      supported: true,
+      permission,
+      subscribed: false,
+      status: readAlertIntent() ? 'needs-action' : 'off',
+    };
+  }
+
+  // The actual browser subscription is the source of truth.
+  saveAlertIntent(true);
+
+  try {
+    await syncExistingSubscription(subscription, priorityBySite);
+  } catch (error) {
+    // Backend sync failure must not incorrectly display alerts as OFF.
+    return {
+      supported: true,
+      permission,
+      subscribed: true,
+      status: 'on',
+      syncError: error?.message || 'Could not sync alert preferences.',
+    };
+  }
+
+  return {
+    supported: true,
+    permission,
+    subscribed: true,
+    status: 'on',
+  };
+}
+
+export function getPushState(priorityBySite) {
+  // React StrictMode and Android focus events can request the same check twice.
+  if (!stateCheckPromise) {
+    stateCheckPromise = checkPushState(priorityBySite).finally(() => {
+      stateCheckPromise = null;
+    });
+  }
+  return stateCheckPromise;
+}
+
 export async function enablePush(priorityBySite) {
   if (!pushSupported()) {
     throw new Error(
@@ -100,7 +212,10 @@ export async function enablePush(priorityBySite) {
     );
   }
 
-  const permission = await Notification.requestPermission();
+  const permission = Notification.permission === 'granted'
+    ? 'granted'
+    : await Notification.requestPermission();
+
   if (permission !== 'granted') {
     throw new Error('Notification permission was not granted.');
   }
@@ -111,7 +226,6 @@ export async function enablePush(priorityBySite) {
   ]);
 
   let subscription = await registration.pushManager.getSubscription();
-
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
@@ -119,27 +233,34 @@ export async function enablePush(priorityBySite) {
     });
   }
 
-  await postSubscription('/push/subscribe', subscription, priorityBySite);
+  saveAlertIntent(true);
+  await syncExistingSubscription(subscription, priorityBySite, true);
   return subscription;
 }
 
 export async function syncPushPreferences(priorityBySite) {
-  if (!pushSupported()) return false;
+  if (!pushSupported() || Notification.permission !== 'granted') return false;
 
   const registration = await registerServiceWorker();
   const subscription = await registration.pushManager.getSubscription();
   if (!subscription) return false;
 
-  await postSubscription('/push/subscribe', subscription, priorityBySite);
+  await syncExistingSubscription(subscription, priorityBySite, true);
   return true;
 }
 
 export async function disablePush() {
-  if (!pushSupported()) return;
+  if (!pushSupported()) {
+    saveAlertIntent(false);
+    return;
+  }
 
   const registration = await registerServiceWorker();
   const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) return;
+  if (!subscription) {
+    saveAlertIntent(false);
+    return;
+  }
 
   try {
     await fetch(`${API_BASE}/push/unsubscribe`, {
@@ -150,7 +271,16 @@ export async function disablePush() {
       },
       body: JSON.stringify({ endpoint: subscription.endpoint }),
     });
-  } finally {
-    await subscription.unsubscribe();
+  } catch {
+    // Local unsubscribe is still required when the backend is unreachable.
   }
+
+  const unsubscribed = await subscription.unsubscribe();
+  if (!unsubscribed) {
+    throw new Error('Android could not turn off the push subscription. Please try again.');
+  }
+
+  saveAlertIntent(false);
+  lastSyncedEndpoint = '';
+  lastSyncedAt = 0;
 }

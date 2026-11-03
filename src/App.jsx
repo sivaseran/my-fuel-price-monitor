@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_RADIUS_MILES, fuelLabels, stations } from './config/stations';
 import { getSiteComparison, getSystemHealth, runAdminAction } from './services/api';
 import {
@@ -11,6 +11,17 @@ import StationTabs from './components/StationTabs';
 import SummaryCards from './components/SummaryCards';
 import CompetitorTable from './components/CompetitorTable';
 import './styles.css';
+
+const DEFAULT_SITE_KEY = 'fuel-monitor:default-site:v1';
+
+function readDefaultSite() {
+  try {
+    const saved = localStorage.getItem(DEFAULT_SITE_KEY);
+    return stations.some((station) => station.id === saved) ? saved : stations[0].id;
+  } catch {
+    return stations[0].id;
+  }
+}
 
 function priorityKey(siteId) {
   return `fuel-monitor:priority:${siteId}`;
@@ -54,7 +65,8 @@ function formatUpdated(value) {
 }
 
 export default function App() {
-  const [siteId, setSiteId] = useState(stations[0].id);
+  const [defaultSiteId, setDefaultSiteId] = useState(readDefaultSite);
+  const [siteId, setSiteId] = useState(readDefaultSite);
   const [radius, setRadius] = useState(DEFAULT_RADIUS_MILES);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -67,7 +79,10 @@ export default function App() {
     supported: true,
     permission: 'default',
     subscribed: false,
+    status: 'checking',
   });
+  const pushBusyRef = useRef(false);
+  const pushCheckSequence = useRef(0);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushMessage, setPushMessage] = useState('');
   const [adminOpen, setAdminOpen] = useState(false);
@@ -87,7 +102,40 @@ export default function App() {
   }, [siteId]);
 
   useEffect(() => {
-    getPushState().then(setPushState).catch(() => {});
+    let alive = true;
+
+    const refreshPushState = async () => {
+      if (pushBusyRef.current) return;
+      const sequence = ++pushCheckSequence.current;
+      try {
+        const state = await getPushState(readPriorityMap());
+        if (alive && sequence === pushCheckSequence.current && !pushBusyRef.current) {
+          setPushState(state);
+        }
+      } catch (error) {
+        if (alive && sequence === pushCheckSequence.current && !pushBusyRef.current) {
+          setPushState((current) => ({
+            ...current,
+            status: 'error',
+            error: error?.message || 'Could not check alert status.',
+          }));
+        }
+      }
+    };
+
+    refreshPushState();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshPushState();
+    };
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      alive = false;
+      ++pushCheckSequence.current;
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -127,6 +175,15 @@ export default function App() {
     };
   }, [siteId, radius]);
 
+  const makeCurrentSiteDefault = () => {
+    try {
+      localStorage.setItem(DEFAULT_SITE_KEY, siteId);
+      setDefaultSiteId(siteId);
+    } catch {
+      setError('Could not save your default station on this device. Check browser storage settings.');
+    }
+  };
+
   const selectFuelView = (fuel) => {
     setFuelView(fuel);
     setSortMode(fuel === 'all' ? 'distance' : 'price');
@@ -150,23 +207,31 @@ export default function App() {
   };
 
   const handlePushToggle = async () => {
+    if (pushBusyRef.current || pushState.status === 'checking') return;
+    pushBusyRef.current = true;
+    ++pushCheckSequence.current;
     setPushBusy(true);
     setPushMessage('');
     try {
       if (pushState.subscribed) {
         await disablePush();
-        const next = await getPushState();
-        setPushState(next);
+        setPushState(await getPushState());
         setPushMessage('Price-change alerts turned off on this device.');
       } else {
         await enablePush(readPriorityMap());
-        const next = await getPushState();
+        const next = await getPushState(readPriorityMap());
         setPushState(next);
         setPushMessage('Alerts are on. Star competitors to receive price-change notifications.');
       }
     } catch (err) {
       setPushMessage(err.message || 'Could not update notification settings.');
+      try {
+        setPushState(await getPushState(readPriorityMap()));
+      } catch {
+        setPushState((current) => ({ ...current, status: 'error' }));
+      }
     } finally {
+      pushBusyRef.current = false;
       setPushBusy(false);
     }
   };
@@ -250,15 +315,21 @@ export default function App() {
           <button
             className={`notification-button ${pushState.subscribed ? 'active' : ''}`}
             onClick={handlePushToggle}
-            disabled={pushBusy || pushState.permission === 'denied'}
+            disabled={pushBusy || pushState.status === 'checking' || pushState.permission === 'denied'}
           >
             {pushBusy
               ? 'Please wait…'
-              : pushState.permission === 'denied'
-                ? '🔕 Alerts blocked'
-                : pushState.subscribed
-                  ? '🔔 Alerts on'
-                  : '🔔 Enable alerts'}
+              : pushState.status === 'checking'
+                ? '🔔 Checking alerts…'
+                : pushState.permission === 'denied'
+                  ? '🔕 Alerts blocked'
+                  : pushState.status === 'error'
+                    ? '⚠️ Check alerts'
+                    : pushState.subscribed
+                      ? '🔔 Alerts on'
+                      : pushState.status === 'needs-action'
+                        ? '🔔 Reconnect alerts'
+                        : '🔔 Enable alerts'}
           </button>
           <button className="admin-open-button" onClick={() => setAdminOpen(true)}>
             🔒 Admin
@@ -267,6 +338,12 @@ export default function App() {
       </header>
 
       {pushMessage && <div className="push-message">{pushMessage}</div>}
+      {!pushMessage && pushState.syncError && (
+        <div className="push-message">Alerts are enabled, but preference sync will retry when you reopen the app.</div>
+      )}
+      {!pushMessage && pushState.status === 'error' && (
+        <div className="push-message">Could not verify alerts. Please check your connection and reopen the app.</div>
+      )}
 
       <StationTabs stations={stations} selectedId={siteId} onSelect={setSiteId} />
 
@@ -274,6 +351,18 @@ export default function App() {
         <div className="site-location">
           <strong>{site.name}</strong>
           <span>{site.address}</span>
+          {defaultSiteId === siteId ? (
+            <span className="default-site-status">★ Default on this device</span>
+          ) : (
+            <button
+              type="button"
+              className="default-site-button"
+              onClick={makeCurrentSiteDefault}
+              title="Open this station automatically on this device"
+            >
+              ☆ Set as default on this device
+            </button>
+          )}
         </div>
 
         <label className="radius-control">
