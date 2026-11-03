@@ -41,6 +41,15 @@ self.addEventListener('push', (event) => {
     const icon = new URL('icons/icon-192.png', self.registration.scope).href;
     const badge = new URL('icons/icon-192.png', self.registration.scope).href;
 
+    // Keep the exact change details with the notification, even if the backend
+    // receives a newer alert before this notification is opened.
+    const details = alert?.test ? null : {
+      siteId: alert?.siteId,
+      siteName: alert?.siteName,
+      createdAt: alert?.createdAt,
+      changes: Array.isArray(alert?.changes) ? alert.changes.slice(0, 10) : [],
+    };
+
     await self.registration.showNotification(alert.title || 'Fuel Price Monitor', {
       body: alert.body || 'A priority competitor changed a fuel price.',
       icon,
@@ -49,6 +58,7 @@ self.addEventListener('push', (event) => {
       renotify: true,
       data: {
         url: self.registration.scope,
+        details,
       },
     });
   })());
@@ -58,7 +68,13 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   event.waitUntil((async () => {
-    const target = event.notification.data?.url || self.registration.scope;
+    const targetUrl = new URL(event.notification.data?.url || self.registration.scope);
+    const details = event.notification.data?.details;
+    if (details?.siteId && Array.isArray(details.changes) && details.changes.length) {
+      // Use a fragment so the alert payload stays client-side, not in server logs.
+      targetUrl.hash = 'price-alert=' + encodeURIComponent(JSON.stringify(details));
+    }
+    const target = targetUrl.href;
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of windows) {
       if ('focus' in client) {
