@@ -23,6 +23,32 @@ function readDefaultSite() {
   }
 }
 
+function readNotificationAlert() {
+  try {
+    const prefix = '#price-alert=';
+    if (!window.location.hash.startsWith(prefix)) return null;
+    const parsed = JSON.parse(decodeURIComponent(window.location.hash.slice(prefix.length)));
+    if (!stations.some((station) => station.id === parsed?.siteId) || !Array.isArray(parsed?.changes)) return null;
+    return {
+      siteId: parsed.siteId,
+      siteName: String(parsed.siteName || ''),
+      createdAt: parsed.createdAt || null,
+      changes: parsed.changes.slice(0, 10).filter((change) =>
+        change && typeof change.nodeId === 'string' &&
+        typeof change.fuelType === 'string' &&
+        Number.isFinite(Number(change.oldPrice)) &&
+        Number.isFinite(Number(change.newPrice))
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function priceText(value) {
+  return Number(value).toFixed(1) + 'p';
+}
+
 function priorityKey(siteId) {
   return `fuel-monitor:priority:${siteId}`;
 }
@@ -66,7 +92,8 @@ function formatUpdated(value) {
 
 export default function App() {
   const [defaultSiteId, setDefaultSiteId] = useState(readDefaultSite);
-  const [siteId, setSiteId] = useState(readDefaultSite);
+  const [notificationAlert, setNotificationAlert] = useState(readNotificationAlert);
+  const [siteId, setSiteId] = useState(() => readNotificationAlert()?.siteId || readDefaultSite());
   const [radius, setRadius] = useState(DEFAULT_RADIUS_MILES);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -93,6 +120,28 @@ export default function App() {
   const [adminResult, setAdminResult] = useState(null);
 
   const site = useMemo(() => stations.find((s) => s.id === siteId), [siteId]);
+
+  useEffect(() => {
+    const handleAlertLink = () => {
+      const incoming = readNotificationAlert();
+      if (!incoming) return;
+      setNotificationAlert(incoming);
+      setSiteId(incoming.siteId);
+    };
+    window.addEventListener('hashchange', handleAlertLink);
+    window.addEventListener('pageshow', handleAlertLink);
+    return () => {
+      window.removeEventListener('hashchange', handleAlertLink);
+      window.removeEventListener('pageshow', handleAlertLink);
+    };
+  }, []);
+
+  const dismissNotificationAlert = () => {
+    setNotificationAlert(null);
+    if (window.location.hash.startsWith('#price-alert=')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  };
 
   useEffect(() => {
     setPriorityIds(readPriority(siteId));
@@ -346,6 +395,45 @@ export default function App() {
       )}
 
       <StationTabs stations={stations} selectedId={siteId} onSelect={setSiteId} />
+
+      {notificationAlert && (
+        <section className="price-alert-panel" role="region" aria-label="Price change notification details">
+          <div className="price-alert-heading">
+            <div>
+              <strong>🔔 Price Change Alert</strong>
+              <span>{notificationAlert.siteName || site.name}
+                {notificationAlert.createdAt && !Number.isNaN(new Date(notificationAlert.createdAt).getTime())
+                  ? ' · ' + new Date(notificationAlert.createdAt).toLocaleString('en-GB')
+                  : ''}
+              </span>
+            </div>
+            <button type="button" onClick={dismissNotificationAlert} aria-label="Dismiss price alert">✕</button>
+          </div>
+          {notificationAlert.changes.length ? (
+            <div className="price-alert-changes">
+              {notificationAlert.changes.map((change, index) => {
+                const competitor = data?.competitors?.find((item) => item.id === change.nodeId);
+                const difference = Number(change.newPrice) - Number(change.oldPrice);
+                return (
+                  <div className="price-alert-change" key={change.nodeId + change.fuelType + index}>
+                    <strong>{competitor?.name || 'Priority competitor'}</strong>
+                    <span>{fuelLabels[change.fuelType] || change.fuelType}</span>
+                    <div className="price-alert-amounts">
+                      <span>{priceText(change.oldPrice)} → <b>{priceText(change.newPrice)}</b></span>
+                      <span className={difference < 0 ? 'price-alert-drop' : difference > 0 ? 'price-alert-rise' : ''}>
+                        {difference < 0 ? '↓' : difference > 0 ? '↑' : '–'} {priceText(Math.abs(difference))}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p>Change details were unavailable for this notification.</p>
+          )}
+          <small>Prices shown are from when the alert was sent. The comparison below shows the latest available data.</small>
+        </section>
+      )}
 
       <section className="site-toolbar">
         <div className="site-location">
