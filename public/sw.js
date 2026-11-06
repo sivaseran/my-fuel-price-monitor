@@ -54,7 +54,8 @@ self.addEventListener('push', (event) => {
       body: alert.body || 'A priority competitor changed a fuel price.',
       icon,
       badge,
-      tag: 'fuel-price-change',
+      // Give every received push its own notification so consecutive alerts remain visible.
+      tag: `fuel-price-change-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       renotify: true,
       data: {
         url: self.registration.scope,
