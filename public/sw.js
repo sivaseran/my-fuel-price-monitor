@@ -48,7 +48,7 @@ self.addEventListener('push', (event) => {
           const payload = await response.json();
           if (payload?.alert) {
             alert = payload.alert;
-            await acknowledgeAlert(endpoint, alert.id, 'retrieved');
+            // Acknowledge after display so telemetry cannot delay the notification.
           }
         }
       }
@@ -82,7 +82,7 @@ self.addEventListener('push', (event) => {
         details,
       },
       });
-      await acknowledgeAlert(endpoint, alert?.id, 'displayed');
+      await Promise.all([acknowledgeAlert(endpoint, alert?.id, 'retrieved'), acknowledgeAlert(endpoint, alert?.id, 'displayed')]);
     } catch (error) {
       await acknowledgeAlert(endpoint, alert?.id, 'display-failed');
       throw error;
