@@ -10,6 +10,19 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(fetch(event.request));
 });
 
+async function acknowledgeAlert(endpoint, alertId, phase) {
+  if (!endpoint || !alertId) return;
+  try {
+    await fetch(`${API_BASE}/push/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, alertId, phase }),
+    });
+  } catch {
+    // Diagnostics must never prevent a notification from being displayed.
+  }
+}
+
 self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
     let alert = {
@@ -17,8 +30,10 @@ self.addEventListener('push', (event) => {
       body: 'A priority competitor changed a fuel price.',
     };
 
+    let endpoint = null;
     try {
       const subscription = await self.registration.pushManager.getSubscription();
+      endpoint = subscription?.endpoint || null;
       if (subscription) {
         const response = await fetch(`${API_BASE}/push/latest`, {
           method: 'POST',
@@ -31,7 +46,10 @@ self.addEventListener('push', (event) => {
 
         if (response.ok) {
           const payload = await response.json();
-          if (payload?.alert) alert = payload.alert;
+          if (payload?.alert) {
+            alert = payload.alert;
+            await acknowledgeAlert(endpoint, alert.id, 'retrieved');
+          }
         }
       }
     } catch {
@@ -44,13 +62,15 @@ self.addEventListener('push', (event) => {
     // Keep the exact change details with the notification, even if the backend
     // receives a newer alert before this notification is opened.
     const details = alert?.test ? null : {
+      simulation: alert?.simulation === true,
       siteId: alert?.siteId,
       siteName: alert?.siteName,
       createdAt: alert?.createdAt,
       changes: Array.isArray(alert?.changes) ? alert.changes.slice(0, 10) : [],
     };
 
-    await self.registration.showNotification(alert.title || 'Fuel Price Monitor', {
+    try {
+      await self.registration.showNotification(alert.title || 'Fuel Price Monitor', {
       body: alert.body || 'A priority competitor changed a fuel price.',
       icon,
       badge,
@@ -61,7 +81,12 @@ self.addEventListener('push', (event) => {
         url: self.registration.scope,
         details,
       },
-    });
+      });
+      await acknowledgeAlert(endpoint, alert?.id, 'displayed');
+    } catch (error) {
+      await acknowledgeAlert(endpoint, alert?.id, 'display-failed');
+      throw error;
+    }
   })());
 });
 
