@@ -1,6 +1,28 @@
 const API_BASE = 'https://fuel-price-monitor-api.5sivas01.workers.dev';
 const ALERTS_ENABLED_KEY = 'fuel-monitor:alerts-enabled:v1';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const DEVICE_ID_KEY = 'fuel-monitor:device-code:v1';
+
+export function getDeviceCode() {
+  try {
+    let code = localStorage.getItem(DEVICE_ID_KEY);
+    if (!code) {
+      code = crypto.randomUUID();
+      localStorage.setItem(DEVICE_ID_KEY, code);
+    }
+    return code;
+  } catch {
+    return '';
+  }
+}
+
+function devicePlatform() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'iPhone / iPad';
+  if (/Android/i.test(ua)) return 'Android';
+  return navigator.platform || 'Unknown';
+}
+
 
 let lastSyncedEndpoint = '';
 let lastSyncedAt = 0;
@@ -81,6 +103,8 @@ async function postSubscription(path, subscription, priorityBySite) {
       subscription: subscription?.toJSON ? subscription.toJSON() : subscription,
       priorityBySite,
       rules: { anyPriceChange: true },
+      deviceId: getDeviceCode(),
+      platform: devicePlatform(),
     }),
   });
 
