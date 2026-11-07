@@ -5,6 +5,7 @@ import {
   disablePush,
   enablePush,
   getPushState,
+  getDeviceCode,
   syncPushPreferences,
 } from './services/notifications';
 import StationTabs from './components/StationTabs';
@@ -33,6 +34,7 @@ function readNotificationAlert() {
       siteId: parsed.siteId,
       siteName: String(parsed.siteName || ''),
       createdAt: parsed.createdAt || null,
+      simulation: parsed.simulation === true,
       changes: parsed.changes.slice(0, 10).filter((change) =>
         change && typeof change.nodeId === 'string' &&
         typeof change.fuelType === 'string' &&
@@ -122,10 +124,18 @@ export default function App() {
   const [simulationFuel, setSimulationFuel] = useState('E10');
   const [simulationOldPrice, setSimulationOldPrice] = useState('139.9');
   const [simulationNewPrice, setSimulationNewPrice] = useState('137.9');
+  const [simulationDevices, setSimulationDevices] = useState([]);
+  const [selectedSimulationDevices, setSelectedSimulationDevices] = useState([]);
+  const [lastSimulationId, setLastSimulationId] = useState('');
 
   const site = useMemo(() => stations.find((s) => s.id === siteId), [siteId]);
-  const simulationCandidates = useMemo(() => (data?.competitors || []).filter((item) => priorityIds.includes(item.id)), [data, priorityIds]);
-  const simulationValid = simulationCandidates.some((item) => item.id === simulationCompetitor) && Number(simulationOldPrice) > 0 && Number(simulationNewPrice) > 0 && Number(simulationOldPrice) !== Number(simulationNewPrice);
+  const simulationCandidates = data?.competitors || [];
+  const simulationValid = simulationCandidates.some((item) => item.id === simulationCompetitor) &&
+    site.fuels.includes(simulationFuel) && Number(simulationOldPrice) >= 1 &&
+    Number(simulationNewPrice) >= 1 && Number(simulationOldPrice) <= 300 &&
+    Number(simulationNewPrice) <= 300 &&
+    Math.abs(Number(simulationOldPrice) - Number(simulationNewPrice)) >= 0.05 &&
+    selectedSimulationDevices.length > 0;
 
   useEffect(() => {
     const handleAlertLink = () => {
@@ -154,6 +164,10 @@ export default function App() {
     setFuelView('all');
     setSortMode('distance');
     setKeyOnly(false);
+    setSimulationCompetitor('');
+    setSimulationDevices([]);
+    setSelectedSimulationDevices([]);
+    setLastSimulationId('');
   }, [siteId]);
 
   useEffect(() => {
@@ -322,8 +336,44 @@ export default function App() {
     }
   };
 
+  const loadSimulationDevices = async () => {
+    if (!adminUnlocked || !adminPin || !simulationCompetitor || adminBusy) return;
+    setAdminBusy(true);
+    setAdminMessage('');
+    try {
+      if (pushState.subscribed) await syncPushPreferences(readPriorityMap());
+      const result = await runAdminAction(adminPin, 'list-push-devices', {
+        siteId, nodeId: simulationCompetitor,
+      });
+      setSimulationDevices(result.devices || []);
+      setSelectedSimulationDevices([]);
+      setAdminMessage('Select the devices to test. Only starred competitors are eligible for delivery.');
+    } catch (error) {
+      setAdminMessage(error?.message || 'Could not load registered devices.');
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  const loadSimulationReport = async () => {
+    if (!lastSimulationId || adminBusy) return;
+    setAdminBusy(true);
+    try {
+      const result = await runAdminAction(adminPin, 'simulation-report', {
+        simulationId: lastSimulationId,
+      });
+      setAdminResult(result);
+      setAdminMessage('Delivery report refreshed. Push acceptance does not guarantee device receipt.');
+    } catch (error) {
+      setAdminMessage(error?.message || 'Could not load simulation report.');
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
   const handleSimulation = async () => {
     if (!adminUnlocked || !adminPin || !simulationValid || adminBusy) return;
+    if (!window.confirm(`Send a clearly marked simulated price alert to ${selectedSimulationDevices.length} selected subscription(s)? No real prices will change.`)) return;
     setAdminBusy(true);
     setAdminMessage('');
     try {
@@ -334,12 +384,14 @@ export default function App() {
         oldPrice: Number(simulationOldPrice),
         newPrice: Number(simulationNewPrice),
         simulation: true,
+        targetDeviceIds: selectedSimulationDevices,
       });
       if (!result?.ok || result?.action !== 'simulate-price-change' || !result?.simulation) {
         throw new Error('Simulation is not enabled in the Cloudflare Worker. No simulation has been confirmed.');
       }
       setAdminResult(result);
-      setAdminMessage('Simulation request accepted. Check the per-device delivery report.');
+      setLastSimulationId(result.eventId);
+      setAdminMessage(`Simulation sent: ${result.sent} accepted, ${result.failed} failed, ${result.excluded} not eligible. Check delivery report after a few seconds.`);
     } catch (error) {
       setAdminMessage(error?.message || 'Simulation failed.');
     } finally {
@@ -417,6 +469,7 @@ export default function App() {
         </div>
       </header>
 
+      {pushState.subscribed && <div className="device-code">This phone's test code: <strong>{getDeviceCode().slice(0, 8)}</strong></div>}
       {pushMessage && <div className="push-message">{pushMessage}</div>}
       {!pushMessage && pushState.syncError && (
         <div className="push-message">Alerts are enabled, but preference sync will retry when you reopen the app.</div>
@@ -431,7 +484,7 @@ export default function App() {
         <section className="price-alert-panel" role="region" aria-label="Price change notification details">
           <div className="price-alert-heading">
             <div>
-              <strong>🔔 Price Change Alert</strong>
+              <strong>{notificationAlert.simulation ? '🧪 SIMULATION — Price Change Alert' : '🔔 Price Change Alert'}</strong>
               <span>{notificationAlert.siteName || site.name}
                 {notificationAlert.createdAt && !Number.isNaN(new Date(notificationAlert.createdAt).getTime())
                   ? ' · ' + new Date(notificationAlert.createdAt).toLocaleString('en-GB')
@@ -462,7 +515,7 @@ export default function App() {
           ) : (
             <p>Change details were unavailable for this notification.</p>
           )}
-          <small>Prices shown are from when the alert was sent. The comparison below shows the latest available data.</small>
+          <small>{notificationAlert.simulation ? 'SIMULATED PRICES ONLY — no actual fuel prices were changed.' : 'Prices shown are from when the alert was sent. The comparison below shows the latest available data.'}</small>
         </section>
       )}
 
@@ -618,23 +671,46 @@ export default function App() {
                   </button>
                 </div>
                 <div className="admin-unlock" style={{ marginTop: 16 }}>
-                  <strong>Simulate a real price change (backend required)</strong>
-                  <small>Uses starred competitors for the selected station. Does not edit actual prices. Only works after the Cloudflare simulation endpoint is deployed.</small>
-                  <label htmlFor="simulation-competitor">Starred competitor — {site.name}</label>
-                  <select id="simulation-competitor" value={simulationCompetitor} onChange={(e) => setSimulationCompetitor(e.target.value)}>
-                    <option value="">Choose a starred competitor</option>
+                  <strong>🧪 Full price-change simulation</strong>
+                  <small>Uses the same priority matching and Web Push path as real alerts. No actual fuel prices are changed.</small>
+                  <label htmlFor="simulation-competitor">Competitor near {site.name}</label>
+                  <select id="simulation-competitor" value={simulationCompetitor} onChange={(e) => {
+                    setSimulationCompetitor(e.target.value);
+                    setSimulationDevices([]);
+                    setSelectedSimulationDevices([]);
+                  }}>
+                    <option value="">Choose competitor</option>
                     {simulationCandidates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
+                  <button type="button" onClick={loadSimulationDevices} disabled={adminBusy || !simulationCompetitor}>1. Load registered devices</button>
+                  {simulationDevices.length > 0 && (
+                    <div className="simulation-device-list">
+                      <strong>2. Select devices to test</strong>
+                      <small>Match each code with the one shown on that phone. Leave Samsung S23 unchecked.</small>
+                      {simulationDevices.map((device) => (
+                        <label key={device.id} className="simulation-device-option">
+                          <input type="checkbox" checked={selectedSimulationDevices.includes(device.id)}
+                            onChange={(e) => setSelectedSimulationDevices((current) => e.target.checked
+                              ? [...current, device.id]
+                              : current.filter((id) => id !== device.id))} />
+                          <span>{device.platform || device.provider} · Code {device.deviceId ? device.deviceId.slice(0, 8) : 'not yet synced'} · {device.shortId}
+                            <small>{device.prioritySelected ? '⭐ Eligible — competitor starred' : 'Not starred on this device — will be excluded'}</small>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                   <label htmlFor="simulation-fuel">Fuel type</label>
                   <select id="simulation-fuel" value={simulationFuel} onChange={(e) => setSimulationFuel(e.target.value)}>
-                    <option value="E10">E10 petrol</option><option value="E5">E5 petrol</option><option value="B7">B7 diesel</option>
+                    {site.fuels.map((fuel) => <option key={fuel} value={fuel}>{fuelLabels[fuel] || fuel}</option>)}
                   </select>
                   <label htmlFor="simulation-old">Previous price (p)</label>
-                  <input id="simulation-old" type="number" min="0.1" step="0.1" value={simulationOldPrice} onChange={(e) => setSimulationOldPrice(e.target.value)} />
+                  <input id="simulation-old" type="number" min="1" max="300" step="0.1" value={simulationOldPrice} onChange={(e) => setSimulationOldPrice(e.target.value)} />
                   <label htmlFor="simulation-new">New price (p)</label>
-                  <input id="simulation-new" type="number" min="0.1" step="0.1" value={simulationNewPrice} onChange={(e) => setSimulationNewPrice(e.target.value)} />
-                  <button className="admin-primary" onClick={handleSimulation} disabled={adminBusy || !simulationValid}>Simulate price change</button>
-                  <small>SIMULATION — this must not alter Fuel Finder prices or trigger genuine price history.</small>
+                  <input id="simulation-new" type="number" min="1" max="300" step="0.1" value={simulationNewPrice} onChange={(e) => setSimulationNewPrice(e.target.value)} />
+                  <button className="admin-primary" onClick={handleSimulation} disabled={adminBusy || !simulationValid}>3. Send simulated price change</button>
+                  {lastSimulationId && <button type="button" onClick={loadSimulationReport} disabled={adminBusy}>4. Refresh per-device delivery report</button>}
+                  <small>SIMULATION ONLY. Push-service acceptance is not proof of phone delivery; look for retrieved/displayed acknowledgements.</small>
                 </div>
                 {adminBusy && <div className="admin-working">Working… please keep this panel open.</div>}
               </>
