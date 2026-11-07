@@ -120,6 +120,11 @@ export default function App() {
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminMessage, setAdminMessage] = useState('');
   const [adminResult, setAdminResult] = useState(null);
+  const [adminSiteId, setAdminSiteId] = useState(readDefaultSite);
+  const [adminComparison, setAdminComparison] = useState(null);
+  const [adminComparisonLoading, setAdminComparisonLoading] = useState(false);
+  const [adminComparisonError, setAdminComparisonError] = useState('');
+  const [adminComparisonRetry, setAdminComparisonRetry] = useState(0);
   const [simulationCompetitor, setSimulationCompetitor] = useState('');
   const [simulationFuel, setSimulationFuel] = useState('E10');
   const [simulationOldPrice, setSimulationOldPrice] = useState('139.9');
@@ -129,9 +134,11 @@ export default function App() {
   const [lastSimulationId, setLastSimulationId] = useState('');
 
   const site = useMemo(() => stations.find((s) => s.id === siteId), [siteId]);
-  const simulationCandidates = data?.competitors || [];
-  const simulationValid = simulationCandidates.some((item) => item.id === simulationCompetitor) &&
-    site.fuels.includes(simulationFuel) && Number(simulationOldPrice) >= 1 &&
+  const adminSite = stations.find((station) => station.id === adminSiteId) || stations[0];
+  const simulationCandidates = adminComparison?.siteId === adminSiteId ? adminComparison.competitors : [];
+  const simulationValidCompetitor = simulationCandidates.some((item) => item.id === simulationCompetitor);
+  const simulationValid = !adminComparisonLoading && !adminComparisonError &&
+    simulationValidCompetitor && adminSite.fuels.includes(simulationFuel) && Number(simulationOldPrice) >= 1 &&
     Number(simulationNewPrice) >= 1 && Number(simulationOldPrice) <= 300 &&
     Number(simulationNewPrice) <= 300 &&
     Math.abs(Number(simulationOldPrice) - Number(simulationNewPrice)) >= 0.05 &&
@@ -151,6 +158,37 @@ export default function App() {
       window.removeEventListener('pageshow', handleAlertLink);
     };
   }, []);
+
+  useEffect(() => {
+    if (!adminOpen || !adminUnlocked) return;
+    let active = true;
+    setAdminComparison(null);
+    setAdminComparisonLoading(true);
+    setAdminComparisonError('');
+    getSiteComparison(adminSiteId, 15)
+      .then((comparison) => {
+        if (active) setAdminComparison({ siteId: adminSiteId, competitors: comparison.competitors || [] });
+      })
+      .catch((error) => {
+        if (active) setAdminComparisonError(error?.message || 'Could not load competitors for this station.');
+      })
+      .finally(() => { if (active) setAdminComparisonLoading(false); });
+    return () => { active = false; };
+  }, [adminOpen, adminUnlocked, adminSiteId, adminComparisonRetry]);
+
+  const changeAdminSite = (nextSiteId) => {
+    const nextSite = stations.find((station) => station.id === nextSiteId);
+    if (!nextSite) return;
+    setAdminSiteId(nextSiteId);
+    setAdminComparison(null);
+    setSimulationCompetitor('');
+    setSimulationFuel(nextSite.fuels[0]);
+    setSimulationDevices([]);
+    setSelectedSimulationDevices([]);
+    setLastSimulationId('');
+    setAdminMessage('');
+    setAdminResult(null);
+  };
 
   const dismissNotificationAlert = () => {
     setNotificationAlert(null);
@@ -307,6 +345,7 @@ export default function App() {
 
   const closeAdmin = () => {
     setAdminOpen(false);
+    setAdminComparison(null);
     setAdminPin('');
     setAdminUnlocked(false);
     setAdminBusy(false);
@@ -337,13 +376,13 @@ export default function App() {
   };
 
   const loadSimulationDevices = async () => {
-    if (!adminUnlocked || !adminPin || !simulationCompetitor || adminBusy) return;
+    if (!adminUnlocked || !adminPin || !simulationValidCompetitor || adminBusy || adminComparisonLoading) return;
     setAdminBusy(true);
     setAdminMessage('');
     try {
       if (pushState.subscribed) await syncPushPreferences(readPriorityMap());
       const result = await runAdminAction(adminPin, 'list-push-devices', {
-        siteId, nodeId: simulationCompetitor,
+        siteId: adminSiteId, nodeId: simulationCompetitor,
       });
       setSimulationDevices(result.devices || []);
       setSelectedSimulationDevices([]);
@@ -378,7 +417,7 @@ export default function App() {
     setAdminMessage('');
     try {
       const result = await runAdminAction(adminPin, 'simulate-price-change', {
-        siteId,
+        siteId: adminSiteId,
         nodeId: simulationCompetitor,
         fuelType: simulationFuel,
         oldPrice: Number(simulationOldPrice),
@@ -463,7 +502,7 @@ export default function App() {
                         ? '🔔 Reconnect alerts'
                         : '🔔 Enable alerts'}
           </button>
-          <button className="admin-open-button" onClick={() => setAdminOpen(true)}>
+          <button className="admin-open-button" onClick={() => { changeAdminSite(siteId); setAdminOpen(true); }}>
             🔒 Admin
           </button>
         </div>
@@ -672,9 +711,21 @@ export default function App() {
                 </div>
                 <div className="admin-unlock" style={{ marginTop: 16 }}>
                   <strong>🧪 Full price-change simulation</strong>
-                  <small>Uses the same priority matching and Web Push path as real alerts. No actual fuel prices are changed.</small>
-                  <label htmlFor="simulation-competitor">Competitor near {site.name}</label>
-                  <select id="simulation-competitor" value={simulationCompetitor} onChange={(e) => {
+                  <small>Choose a station independently of the dashboard. Priority eligibility is checked for the selected station on each phone.</small>
+                  <label htmlFor="simulation-site">Service station to test</label>
+                  <select id="simulation-site" value={adminSiteId} disabled={adminBusy}
+                    onChange={(event) => changeAdminSite(event.target.value)}>
+                    {stations.map((station) => <option key={station.id} value={station.id}>{station.name}</option>)}
+                  </select>
+                  {adminComparisonLoading && <small role="status">Loading competitors for {adminSite.name}…</small>}
+                  {adminComparisonError && (
+                    <div className="admin-message" role="alert">
+                      {adminComparisonError}
+                      <button type="button" onClick={() => setAdminComparisonRetry((value) => value + 1)}>Retry</button>
+                    </div>
+                  )}
+                  <label htmlFor="simulation-competitor">Competitor near {adminSite.name}</label>
+                  <select id="simulation-competitor" value={simulationCompetitor} disabled={adminComparisonLoading || !!adminComparisonError || adminBusy} onChange={(e) => {
                     setSimulationCompetitor(e.target.value);
                     setSimulationDevices([]);
                     setSelectedSimulationDevices([]);
@@ -682,10 +733,10 @@ export default function App() {
                     <option value="">Choose competitor</option>
                     {simulationCandidates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
-                  <button type="button" onClick={loadSimulationDevices} disabled={adminBusy || !simulationCompetitor}>1. Load registered devices</button>
+                  <button type="button" onClick={loadSimulationDevices} disabled={adminBusy || !simulationValidCompetitor || adminComparisonLoading}>1. Load registered devices</button>
                   {simulationDevices.length > 0 && (
                     <div className="simulation-device-list">
-                      <strong>2. Select devices to test</strong>
+                      <strong>2. Select devices to test — {adminSite.shortName}</strong>
                       <small>Match each code with the one shown on that phone. Leave Samsung S23 unchecked.</small>
                       {simulationDevices.map((device) => (
                         <label key={device.id} className="simulation-device-option">
@@ -702,13 +753,13 @@ export default function App() {
                   )}
                   <label htmlFor="simulation-fuel">Fuel type</label>
                   <select id="simulation-fuel" value={simulationFuel} onChange={(e) => setSimulationFuel(e.target.value)}>
-                    {site.fuels.map((fuel) => <option key={fuel} value={fuel}>{fuelLabels[fuel] || fuel}</option>)}
+                    {adminSite.fuels.map((fuel) => <option key={fuel} value={fuel}>{fuelLabels[fuel] || fuel}</option>)}
                   </select>
                   <label htmlFor="simulation-old">Previous price (p)</label>
                   <input id="simulation-old" type="number" min="1" max="300" step="0.1" value={simulationOldPrice} onChange={(e) => setSimulationOldPrice(e.target.value)} />
                   <label htmlFor="simulation-new">New price (p)</label>
                   <input id="simulation-new" type="number" min="1" max="300" step="0.1" value={simulationNewPrice} onChange={(e) => setSimulationNewPrice(e.target.value)} />
-                  <button className="admin-primary" onClick={handleSimulation} disabled={adminBusy || !simulationValid}>3. Send simulated price change</button>
+                  <button className="admin-primary" onClick={handleSimulation} disabled={adminBusy || !simulationValid}>3. Send simulated price change for {adminSite.shortName}</button>
                   {lastSimulationId && <button type="button" onClick={loadSimulationReport} disabled={adminBusy}>4. Refresh per-device delivery report</button>}
                   <small>SIMULATION ONLY. Push-service acceptance is not proof of phone delivery; look for retrieved/displayed acknowledgements.</small>
                 </div>
