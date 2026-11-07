@@ -590,3 +590,15 @@ select {
 .price-alert-drop { color: #067647; font-weight: 800; }
 .price-alert-rise { color: #b42318; font-weight: 800; }
 .price-alert-panel > small { display: block; margin-top: 10px; color: #475467; font-size: 11px; }
+
+/* End-to-end push simulation controls */
+.device-code { font-size: 11px; color: #667085; padding: 3px 14px 7px; }
+.device-code strong { color: #344054; font-family: ui-monospace, monospace; }
+.admin-unlock select { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid #d0d5dd; border-radius: 10px; background: #fff; font: inherit; }
+.admin-unlock > button:not(.admin-primary) { min-height: 40px; padding: 8px 10px; border: 1px solid #d0d5dd; border-radius: 10px; background: #fff; cursor: pointer; font-weight: 700; }
+.admin-unlock > button:disabled { opacity: .55; cursor: default; }
+.simulation-device-list { display: grid; gap: 8px; padding: 10px; border: 1px solid #eaecf0; border-radius: 10px; }
+.admin-unlock .simulation-device-option { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.admin-unlock .simulation-device-option input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 0; padding: 0; letter-spacing: normal; }
+.simulation-device-option span { min-width: 0; overflow-wrap: anywhere; }
+.simulation-device-option small { display: block; margin-top: 3px; }

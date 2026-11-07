@@ -113,7 +113,7 @@ export async function getSystemHealth() {
   return payload;
 }
 
-export async function runAdminAction(pin, action) {
+export async function runAdminAction(pin, action, options = {}) {
   const response = await fetch(`${apiBase}/admin/pin/action`, {
     method: 'POST',
     headers: {
@@ -121,7 +121,7 @@ export async function runAdminAction(pin, action) {
       'Content-Type': 'application/json',
     },
     cache: 'no-store',
-    body: JSON.stringify({ pin, action }),
+    body: JSON.stringify({ pin, action, ...options }),
   });
 
   const payload = await response.json().catch(() => null);
