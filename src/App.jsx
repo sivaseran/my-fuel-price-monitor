@@ -118,8 +118,14 @@ export default function App() {
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminMessage, setAdminMessage] = useState('');
   const [adminResult, setAdminResult] = useState(null);
+  const [simulationCompetitor, setSimulationCompetitor] = useState('');
+  const [simulationFuel, setSimulationFuel] = useState('E10');
+  const [simulationOldPrice, setSimulationOldPrice] = useState('139.9');
+  const [simulationNewPrice, setSimulationNewPrice] = useState('137.9');
 
   const site = useMemo(() => stations.find((s) => s.id === siteId), [siteId]);
+  const simulationCandidates = useMemo(() => (data?.competitors || []).filter((item) => priorityIds.includes(item.id)), [data, priorityIds]);
+  const simulationValid = simulationCandidates.some((item) => item.id === simulationCompetitor) && Number(simulationOldPrice) > 0 && Number(simulationNewPrice) > 0 && Number(simulationOldPrice) !== Number(simulationNewPrice);
 
   useEffect(() => {
     const handleAlertLink = () => {
@@ -311,6 +317,31 @@ export default function App() {
     } catch (err) {
       setAdminUnlocked(false);
       setAdminMessage(err.message || 'Could not unlock admin tools.');
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  const handleSimulation = async () => {
+    if (!adminUnlocked || !adminPin || !simulationValid || adminBusy) return;
+    setAdminBusy(true);
+    setAdminMessage('');
+    try {
+      const result = await runAdminAction(adminPin, 'simulate-price-change', {
+        siteId,
+        nodeId: simulationCompetitor,
+        fuelType: simulationFuel,
+        oldPrice: Number(simulationOldPrice),
+        newPrice: Number(simulationNewPrice),
+        simulation: true,
+      });
+      if (!result?.ok || result?.action !== 'simulate-price-change' || !result?.simulation) {
+        throw new Error('Simulation is not enabled in the Cloudflare Worker. No simulation has been confirmed.');
+      }
+      setAdminResult(result);
+      setAdminMessage('Simulation request accepted. Check the per-device delivery report.');
+    } catch (error) {
+      setAdminMessage(error?.message || 'Simulation failed.');
     } finally {
       setAdminBusy(false);
     }
@@ -585,6 +616,25 @@ export default function App() {
                     <strong>Full price refresh</strong>
                     <span>Recovery only • heavy</span>
                   </button>
+                </div>
+                <div className="admin-unlock" style={{ marginTop: 16 }}>
+                  <strong>Simulate a real price change (backend required)</strong>
+                  <small>Uses starred competitors for the selected station. Does not edit actual prices. Only works after the Cloudflare simulation endpoint is deployed.</small>
+                  <label htmlFor="simulation-competitor">Starred competitor — {site.name}</label>
+                  <select id="simulation-competitor" value={simulationCompetitor} onChange={(e) => setSimulationCompetitor(e.target.value)}>
+                    <option value="">Choose a starred competitor</option>
+                    {simulationCandidates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                  <label htmlFor="simulation-fuel">Fuel type</label>
+                  <select id="simulation-fuel" value={simulationFuel} onChange={(e) => setSimulationFuel(e.target.value)}>
+                    <option value="E10">E10 petrol</option><option value="E5">E5 petrol</option><option value="B7">B7 diesel</option>
+                  </select>
+                  <label htmlFor="simulation-old">Previous price (p)</label>
+                  <input id="simulation-old" type="number" min="0.1" step="0.1" value={simulationOldPrice} onChange={(e) => setSimulationOldPrice(e.target.value)} />
+                  <label htmlFor="simulation-new">New price (p)</label>
+                  <input id="simulation-new" type="number" min="0.1" step="0.1" value={simulationNewPrice} onChange={(e) => setSimulationNewPrice(e.target.value)} />
+                  <button className="admin-primary" onClick={handleSimulation} disabled={adminBusy || !simulationValid}>Simulate price change</button>
+                  <small>SIMULATION — this must not alter Fuel Finder prices or trigger genuine price history.</small>
                 </div>
                 {adminBusy && <div className="admin-working">Working… please keep this panel open.</div>}
               </>
