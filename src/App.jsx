@@ -14,6 +14,23 @@ import CompetitorTable from './components/CompetitorTable';
 import './styles.css';
 
 const DEFAULT_SITE_KEY = 'fuel-monitor:default-site:v1';
+const SIMULATION_HISTORY_KEY = 'fuel-monitor:simulation-history:v1';
+const SIMULATION_REPORT_TTL_MS = 24 * 60 * 60 * 1000;
+
+function readSimulationHistory() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(SIMULATION_HISTORY_KEY) || '[]');
+    if (!Array.isArray(entries)) return [];
+    return entries.filter((entry) =>
+      typeof entry?.eventId === 'string' &&
+      Number.isFinite(Date.parse(entry.createdAt)) &&
+      Date.now() - Date.parse(entry.createdAt) < SIMULATION_REPORT_TTL_MS
+    ).slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
 
 function readDefaultSite() {
   try {
@@ -132,6 +149,7 @@ export default function App() {
   const [simulationDevices, setSimulationDevices] = useState([]);
   const [selectedSimulationDevices, setSelectedSimulationDevices] = useState([]);
   const [lastSimulationId, setLastSimulationId] = useState('');
+  const [simulationHistory, setSimulationHistory] = useState(readSimulationHistory);
 
   const site = useMemo(() => stations.find((s) => s.id === siteId), [siteId]);
   const adminSite = stations.find((station) => station.id === adminSiteId) || stations[0];
@@ -394,13 +412,27 @@ export default function App() {
     }
   };
 
-  const loadSimulationReport = async () => {
-    if (!lastSimulationId || adminBusy) return;
+  const rememberSimulation = (result) => {
+    if (!result?.eventId) return;
+    setSimulationHistory((current) => {
+      const next = [result, ...current.filter((entry) => entry.eventId !== result.eventId)]
+        .filter((entry) => Date.now() - Date.parse(entry.createdAt) < SIMULATION_REPORT_TTL_MS)
+        .slice(0, 10);
+      try { localStorage.setItem(SIMULATION_HISTORY_KEY, JSON.stringify(next)); } catch {
+        // History remains available for this session when storage is disabled.
+      }
+      return next;
+    });
+  };
+
+  const loadSimulationReport = async (simulationId = lastSimulationId) => {
+    if (!simulationId || adminBusy) return;
     setAdminBusy(true);
     try {
       const result = await runAdminAction(adminPin, 'simulation-report', {
-        simulationId: lastSimulationId,
+        simulationId,
       });
+      rememberSimulation(result);
       setAdminResult(result);
       setAdminMessage('Delivery report refreshed. Push acceptance does not guarantee device receipt.');
     } catch (error) {
@@ -429,6 +461,7 @@ export default function App() {
         throw new Error('Simulation is not enabled in the Cloudflare Worker. No simulation has been confirmed.');
       }
       setAdminResult(result);
+      rememberSimulation(result);
       setLastSimulationId(result.eventId);
       setAdminMessage(`Simulation sent: ${result.sent} accepted, ${result.failed} failed, ${result.excluded} not eligible. Check delivery report after a few seconds.`);
     } catch (error) {
@@ -763,6 +796,39 @@ export default function App() {
                   {lastSimulationId && <button type="button" onClick={loadSimulationReport} disabled={adminBusy}>4. Refresh per-device delivery report</button>}
                   <small>SIMULATION ONLY. Push-service acceptance is not proof of phone delivery; look for retrieved/displayed acknowledgements.</small>
                 </div>
+                {simulationHistory.length > 0 && (
+                  <section className="simulation-history" aria-label="Previous simulation reports">
+                    <strong>🧪 Simulation history — last 24 hours</strong>
+                    <small>Each test has its own report. Open a test to inspect or refresh its device acknowledgements.</small>
+                    {simulationHistory.map((entry, index) => (
+                      <details className="simulation-history-entry" key={entry.eventId}>
+                        <summary>
+                          <span>Push {simulationHistory.length - index} · {entry.competitorName || entry.siteId} · {entry.fuelType}</span>
+                          <small>{Number(entry.oldPrice).toFixed(1)}p → {Number(entry.newPrice).toFixed(1)}p · {new Date(entry.createdAt).toLocaleString('en-GB')}</small>
+                        </summary>
+                        <div className="simulation-history-content">
+                          <div>Accepted: <strong>{entry.sent ?? '—'}</strong> · Failed: {entry.failed ?? '—'} · Excluded: {entry.excluded ?? '—'}</div>
+                          {(entry.devices || []).map((device) => (
+                            <div className="simulation-history-device" key={device.id}>
+                              <strong>{device.platform || device.provider || 'Device'} · {device.deviceId?.slice(0, 8) || device.shortId}</strong>
+                              <span>{!device.eligible ? 'Not eligible' : device.accepted ? 'Push accepted' : 'Push failed'}
+                                {device.status ? ' (HTTP ' + device.status + ')' : ''}
+                                {device.acknowledgements?.displayed ? ' · Display acknowledged' : device.acknowledgements?.retrieved ? ' · Retrieved' : ' · No display acknowledgement yet'}
+                              </span>
+                            </div>
+                          ))}
+                          <button type="button" onClick={() => loadSimulationReport(entry.eventId)} disabled={adminBusy}>
+                            Refresh this test's delivery report
+                          </button>
+                          <details className="admin-result">
+                            <summary>View this test's JSON</summary>
+                            <pre>{JSON.stringify(entry, null, 2)}</pre>
+                          </details>
+                        </div>
+                      </details>
+                    ))}
+                  </section>
+                )}
                 {adminBusy && <div className="admin-working">Working… please keep this panel open.</div>}
               </>
             )}
