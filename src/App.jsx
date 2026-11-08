@@ -793,7 +793,7 @@ export default function App() {
                   <label htmlFor="simulation-new">New price (p)</label>
                   <input id="simulation-new" type="number" min="1" max="300" step="0.1" value={simulationNewPrice} onChange={(e) => setSimulationNewPrice(e.target.value)} />
                   <button className="admin-primary" onClick={handleSimulation} disabled={adminBusy || !simulationValid}>3. Send simulated price change for {adminSite.shortName}</button>
-                  {lastSimulationId && <button type="button" onClick={loadSimulationReport} disabled={adminBusy}>4. Refresh per-device delivery report</button>}
+                  {lastSimulationId && <button type="button" onClick={() => loadSimulationReport()} disabled={adminBusy}>4. Refresh per-device delivery report</button>}
                   <small>SIMULATION ONLY. Push-service acceptance is not proof of phone delivery; look for retrieved/displayed acknowledgements.</small>
                 </div>
                 {simulationHistory.length > 0 && (
