@@ -65,6 +65,37 @@ h1 {
 }
 .notification-button:disabled { opacity: .65; cursor: default; }
 
+.app-update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid #b2ddff;
+  background: #eff8ff;
+  border-radius: 12px;
+}
+.app-update-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.app-update-copy strong { font-size: 14px; color: #1849a9; }
+.app-update-copy span { font-size: 12px; color: #344054; line-height: 1.4; }
+.app-update-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.app-update-actions button {
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.app-update-actions button:disabled { opacity: .65; cursor: default; }
+.app-update-later { background: transparent; border: 1px solid #b2ddff; color: #175cd3; }
+.app-update-now { background: #175cd3; border: 1px solid #175cd3; color: white; }
+@media (max-width: 540px) {
+  .app-update-banner { align-items: stretch; flex-direction: column; }
+  .app-update-actions { justify-content: flex-end; }
+}
+
 .push-message, .error, .loading {
   border-radius: 11px;
   padding: 10px 12px;
