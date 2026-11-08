@@ -11,6 +11,7 @@ import {
 import StationTabs from './components/StationTabs';
 import SummaryCards from './components/SummaryCards';
 import CompetitorTable from './components/CompetitorTable';
+import { consumePendingAlert, getAlertById } from './services/alertInbox';
 import './styles.css';
 
 const DEFAULT_SITE_KEY = 'fuel-monitor:default-site:v1';
@@ -170,35 +171,69 @@ export default function App() {
     selectedSimulationDevices.length > 0;
 
   useEffect(() => {
-    const showAlert = (incoming) => {
-      if (!incoming) return;
+    let alive = true;
+    let latestCheck = 0;
+    let checkPromise = null;
+    const showAlert = (incoming, id = null) => {
+      if (!alive || !incoming) return;
+      if (id) {
+        const hash = '#price-alert-id=' + encodeURIComponent(id);
+        if (window.location.hash !== hash) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+        }
+      }
       setNotificationAlert(incoming);
       setSiteId(incoming.siteId);
     };
-    const handleAlertLink = () => showAlert(readNotificationAlert());
+    const handleAlertLink = () => {
+      if (checkPromise) return checkPromise;
+      checkPromise = (async () => {
+      const check = ++latestCheck;
+      // Pending tap takes precedence over an older URL/hash on resumed iOS PWAs.
+      const pending = await consumePendingAlert();
+      if (!alive || check !== latestCheck) return;
+      if (pending) {
+        const details = normaliseNotificationAlert(pending.details) ||
+          normaliseNotificationAlert(await getAlertById(pending.id));
+        if (!alive || check !== latestCheck) return;
+        if (details) {
+          showAlert(details, pending.id);
+          return;
+        }
+      }
+      const prefix = '#price-alert-id=';
+      if (window.location.hash.startsWith(prefix)) {
+        const id = decodeURIComponent(window.location.hash.slice(prefix.length));
+        const details = normaliseNotificationAlert(await getAlertById(id));
+        if (!alive || check !== latestCheck) return;
+        if (details) showAlert(details);
+        return;
+      }
+      showAlert(readNotificationAlert());
+      })().finally(() => { checkPromise = null; });
+      return checkPromise;
+    };
     const handleWorkerMessage = (event) => {
       if (event.data?.type !== 'fuel-price-alert-open') return;
       const incoming = normaliseNotificationAlert(event.data.details);
-      if (!incoming) return;
-      // Keep the URL in sync so a later iOS focus event cannot restore
-      // an older notification's details over the one just tapped.
-      const hash = '#price-alert=' + encodeURIComponent(JSON.stringify(incoming));
-      if (window.location.hash !== hash) {
-        window.history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+      if (incoming) {
+        ++latestCheck;
+        showAlert(incoming, event.data.id);
+      } else {
+        void handleAlertLink();
       }
-      showAlert(incoming);
     };
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') handleAlertLink();
+      if (document.visibilityState === 'visible') void handleAlertLink();
     };
     window.addEventListener('hashchange', handleAlertLink);
     window.addEventListener('pageshow', handleAlertLink);
     window.addEventListener('focus', handleAlertLink);
     document.addEventListener('visibilitychange', handleVisibility);
     navigator.serviceWorker?.addEventListener('message', handleWorkerMessage);
-    // Check again after mount in case iOS resumed the app before React was ready.
-    handleAlertLink();
+    void handleAlertLink();
     return () => {
+      alive = false;
       window.removeEventListener('hashchange', handleAlertLink);
       window.removeEventListener('pageshow', handleAlertLink);
       window.removeEventListener('focus', handleAlertLink);

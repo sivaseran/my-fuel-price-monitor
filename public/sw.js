@@ -1,5 +1,59 @@
 const API_BASE = 'https://fuel-price-monitor-api.5sivas01.workers.dev';
 
+
+// Store each push and tap before iOS opens/resumes the Home Screen PWA.
+// IndexedDB is shared by this service worker and the app on the same origin.
+const ALERT_DB = 'fuel-price-monitor-alert-inbox-v1';
+function openAlertDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(ALERT_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('alerts')) db.createObjectStore('alerts', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function writeAlert(id, details) {
+  if (!id || !details?.siteId) return;
+  const db = await openAlertDatabase();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('alerts', 'readwrite');
+      tx.objectStore('alerts').put({ id, details, savedAt: Date.now() });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally { db.close(); }
+}
+async function readAlert(id) {
+  if (!id) return null;
+  const db = await openAlertDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('alerts', 'readonly');
+      const request = tx.objectStore('alerts').get(id);
+      request.onsuccess = () => resolve(request.result?.details || null);
+      request.onerror = () => reject(request.error);
+    });
+  } finally { db.close(); }
+}
+async function writePendingClick(id, details) {
+  const db = await openAlertDatabase();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readwrite');
+      tx.objectStore('meta').put({ key: 'pending', id, details, clickedAt: Date.now(), consumed: false });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally { db.close(); }
+}
+
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
@@ -77,16 +131,21 @@ self.addEventListener('push', (event) => {
       changes: Array.isArray(alert?.changes) ? alert.changes.slice(0, 10) : [],
     };
 
+    const alertId = alert?.id || crypto.randomUUID();
     try {
+      // The persisted alert is a fallback when iOS loses the click's message
+      // or cannot navigate a running PWA on the first tap.
+      try { await writeAlert(alertId, details); } catch {}
       await self.registration.showNotification(alert.title || 'Fuel Price Monitor', {
       body: alert.body || 'A priority competitor changed a fuel price.',
       icon,
       badge,
       // Give every received push its own notification so consecutive alerts remain visible.
-      tag: `fuel-price-change-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      tag: `fuel-price-change-${alertId}`,
       renotify: true,
       data: {
         url: self.registration.scope,
+        alertId,
         details,
       },
       });
@@ -102,44 +161,37 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   event.waitUntil((async () => {
-    const targetUrl = new URL(event.notification.data?.url || self.registration.scope);
-    const details = event.notification.data?.details;
-    if (details?.siteId && Array.isArray(details.changes) && details.changes.length) {
-      // Use a fragment so the alert payload stays client-side, not in server logs.
-      targetUrl.hash = 'price-alert=' + encodeURIComponent(JSON.stringify(details));
+    const notificationData = event.notification.data || {};
+    const alertId = notificationData.alertId ||
+      (event.notification.tag?.startsWith('fuel-price-change-')
+        ? event.notification.tag.slice('fuel-price-change-'.length)
+        : crypto.randomUUID());
+    let details = notificationData.details;
+    if (!details?.changes?.length) {
+      try { details = await readAlert(alertId); } catch {}
     }
+
+    // Persist the tap BEFORE focusing/navigating. iOS can resume the app
+    // before postMessage or hashchange is delivered.
+    try { await writePendingClick(alertId, details); } catch {}
+
+    const targetUrl = new URL(notificationData.url || self.registration.scope);
+    targetUrl.hash = 'price-alert-id=' + encodeURIComponent(alertId);
     const target = targetUrl.href;
+    const message = { type: 'fuel-price-alert-open', id: alertId, details };
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
     for (const client of windows) {
-      // Only reuse this PWA's own window, not another open page.
       if (!client.url.startsWith(self.registration.scope)) continue;
-
-      // iOS can resume an existing Home Screen app without firing hashchange
-      // or pageshow. Deliver the alert directly as well as via the URL.
-      const message = { type: 'fuel-price-alert-open', details };
       try { client.postMessage(message); } catch {}
-
       let opened = client;
-      let navigated = false;
-      if ('navigate' in client) {
-        try {
-          opened = await client.navigate(target) || client;
-          navigated = true;
-        } catch {
-          // Some WebKit versions reject navigation during notification clicks.
-        }
-      }
-      let focused = false;
       try {
-        if ('focus' in opened) {
-          await opened.focus();
-          focused = true;
-        }
-      } catch {
-        // The direct message may still be delivered when the app resumes.
-      }
+        if ('navigate' in client) opened = await client.navigate(target) || client;
+      } catch {}
+      try { if ('focus' in opened) await opened.focus(); } catch {}
       try { opened.postMessage(message); } catch {}
-      if (navigated || focused) return;
+      // The pending record survives even if every iOS event above was missed.
+      return;
     }
     if (self.clients.openWindow) await self.clients.openWindow(target);
   })());
