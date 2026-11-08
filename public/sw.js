@@ -141,7 +141,7 @@ self.addEventListener('push', (event) => {
       icon,
       badge,
       // Give every received push its own notification so consecutive alerts remain visible.
-      tag: `fuel-price-change-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      tag: `fuel-price-change-${alertId}`,
       renotify: true,
       data: {
         url: self.registration.scope,
@@ -162,7 +162,10 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil((async () => {
     const notificationData = event.notification.data || {};
-    const alertId = notificationData.alertId || crypto.randomUUID();
+    const alertId = notificationData.alertId ||
+      (event.notification.tag?.startsWith('fuel-price-change-')
+        ? event.notification.tag.slice('fuel-price-change-'.length)
+        : crypto.randomUUID());
     let details = notificationData.details;
     if (!details?.changes?.length) {
       try { details = await readAlert(alertId); } catch {}
