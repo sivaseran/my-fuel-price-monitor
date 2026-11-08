@@ -41,24 +41,31 @@ function readDefaultSite() {
   }
 }
 
+function normaliseNotificationAlert(parsed) {
+  if (!stations.some((station) => station.id === parsed?.siteId) || !Array.isArray(parsed?.changes)) return null;
+  const changes = parsed.changes.slice(0, 10).filter((change) =>
+    change && typeof change.nodeId === 'string' &&
+    typeof change.fuelType === 'string' &&
+    Number.isFinite(Number(change.oldPrice)) &&
+    Number.isFinite(Number(change.newPrice))
+  );
+  if (!changes.length) return null;
+  return {
+    siteId: parsed.siteId,
+    siteName: String(parsed.siteName || ''),
+    createdAt: parsed.createdAt || null,
+    simulation: parsed.simulation === true,
+    changes,
+  };
+}
+
 function readNotificationAlert() {
   try {
     const prefix = '#price-alert=';
     if (!window.location.hash.startsWith(prefix)) return null;
-    const parsed = JSON.parse(decodeURIComponent(window.location.hash.slice(prefix.length)));
-    if (!stations.some((station) => station.id === parsed?.siteId) || !Array.isArray(parsed?.changes)) return null;
-    return {
-      siteId: parsed.siteId,
-      siteName: String(parsed.siteName || ''),
-      createdAt: parsed.createdAt || null,
-      simulation: parsed.simulation === true,
-      changes: parsed.changes.slice(0, 10).filter((change) =>
-        change && typeof change.nodeId === 'string' &&
-        typeof change.fuelType === 'string' &&
-        Number.isFinite(Number(change.oldPrice)) &&
-        Number.isFinite(Number(change.newPrice))
-      ),
-    };
+    return normaliseNotificationAlert(
+      JSON.parse(decodeURIComponent(window.location.hash.slice(prefix.length)))
+    );
   } catch {
     return null;
   }
@@ -163,17 +170,32 @@ export default function App() {
     selectedSimulationDevices.length > 0;
 
   useEffect(() => {
-    const handleAlertLink = () => {
-      const incoming = readNotificationAlert();
+    const showAlert = (incoming) => {
       if (!incoming) return;
       setNotificationAlert(incoming);
       setSiteId(incoming.siteId);
     };
+    const handleAlertLink = () => showAlert(readNotificationAlert());
+    const handleWorkerMessage = (event) => {
+      if (event.data?.type !== 'fuel-price-alert-open') return;
+      showAlert(normaliseNotificationAlert(event.data.details));
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') handleAlertLink();
+    };
     window.addEventListener('hashchange', handleAlertLink);
     window.addEventListener('pageshow', handleAlertLink);
+    window.addEventListener('focus', handleAlertLink);
+    document.addEventListener('visibilitychange', handleVisibility);
+    navigator.serviceWorker?.addEventListener('message', handleWorkerMessage);
+    // Check again after mount in case iOS resumed the app before React was ready.
+    handleAlertLink();
     return () => {
       window.removeEventListener('hashchange', handleAlertLink);
       window.removeEventListener('pageshow', handleAlertLink);
+      window.removeEventListener('focus', handleAlertLink);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      navigator.serviceWorker?.removeEventListener('message', handleWorkerMessage);
     };
   }, []);
 
