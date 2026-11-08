@@ -111,11 +111,35 @@ self.addEventListener('notificationclick', (event) => {
     const target = targetUrl.href;
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of windows) {
-      if ('focus' in client) {
-        await client.focus();
-        if ('navigate' in client) await client.navigate(target);
-        return;
+      // Only reuse this PWA's own window, not another open page.
+      if (!client.url.startsWith(self.registration.scope)) continue;
+
+      // iOS can resume an existing Home Screen app without firing hashchange
+      // or pageshow. Deliver the alert directly as well as via the URL.
+      const message = { type: 'fuel-price-alert-open', details };
+      try { client.postMessage(message); } catch {}
+
+      let opened = client;
+      let navigated = false;
+      if ('navigate' in client) {
+        try {
+          opened = await client.navigate(target) || client;
+          navigated = true;
+        } catch {
+          // Some WebKit versions reject navigation during notification clicks.
+        }
       }
+      let focused = false;
+      try {
+        if ('focus' in opened) {
+          await opened.focus();
+          focused = true;
+        }
+      } catch {
+        // The direct message may still be delivered when the app resumes.
+      }
+      try { opened.postMessage(message); } catch {}
+      if (navigated || focused) return;
     }
     if (self.clients.openWindow) await self.clients.openWindow(target);
   })());
