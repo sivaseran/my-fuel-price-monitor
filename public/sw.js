@@ -31,10 +31,22 @@ self.addEventListener('push', (event) => {
     };
 
     let endpoint = null;
+    let receivedPayload = false;
+    try {
+      // New Workers send the complete alert inside the encrypted Web Push
+      // payload. Do not fetch /push/latest: a newer alert may overwrite it.
+      const payload = event.data?.json();
+      if (payload?.alert?.id && typeof payload.alert.title === 'string') {
+        alert = payload.alert;
+        receivedPayload = true;
+      }
+    } catch {
+      // Older empty-payload pushes still use the legacy lookup below.
+    }
     try {
       const subscription = await self.registration.pushManager.getSubscription();
       endpoint = subscription?.endpoint || null;
-      if (subscription) {
+      if (subscription && !receivedPayload) {
         const response = await fetch(`${API_BASE}/push/latest`, {
           method: 'POST',
           headers: {
@@ -43,17 +55,13 @@ self.addEventListener('push', (event) => {
           },
           body: JSON.stringify({ endpoint: subscription.endpoint }),
         });
-
         if (response.ok) {
           const payload = await response.json();
-          if (payload?.alert) {
-            alert = payload.alert;
-            // Acknowledge after display so telemetry cannot delay the notification.
-          }
+          if (payload?.alert) alert = payload.alert;
         }
       }
     } catch {
-      // Show the generic notification if lookup fails.
+      // If the legacy lookup fails, show the generic notification.
     }
 
     const icon = new URL('icons/icon-192.png', self.registration.scope).href;
