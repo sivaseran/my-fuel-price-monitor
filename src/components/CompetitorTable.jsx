@@ -122,14 +122,12 @@ export default function CompetitorTable({
               className={`station-row ${station.isOwn ? 'our-store-row' : ''} ${priority ? 'priority-row' : ''}`}
             >
               <div className="station-row-main">
-                <div className="station-rank">
-                  {fuelView !== 'all' ? index + 1 : station.isOwn ? 'YOU' : ''}
-                </div>
+                {fuelView !== 'all' && <div className="station-rank">{index + 1}</div>}
 
                 <button
                   className={`star-button ${priority ? 'active' : ''} ${station.isOwn ? 'hidden-star' : ''}`}
                   onClick={() => !station.isOwn && togglePriority(station.id)}
-                  aria-label={priority ? 'Remove priority competitor' : 'Mark priority competitor'}
+                  aria-label={priority ? `Remove ${station.name} from priority competitors` : `Mark ${station.name} as priority competitor`}
                   disabled={station.isOwn}
                 >
                   {station.isOwn ? '◆' : priority ? '★' : '☆'}
@@ -139,7 +137,7 @@ export default function CompetitorTable({
                   <div className="station-name-line">
                     <strong>{station.name}</strong>
                     {station.isOwn && <span className="our-badge">OUR STORE</span>}
-                    {priority && <span className="priority-badge">Priority</span>}
+                    
                   </div>
                   <div className="station-meta">
                     {station.brand || 'Independent'}
@@ -159,7 +157,7 @@ export default function CompetitorTable({
               </div>
 
               {fuelView === 'all' && (
-                <div className="all-fuels-grid">
+                <div className={`all-fuels-grid fuel-count-${site.fuels.length}`}>
                   {site.fuels.map((fuel) => {
                     const price = station.prices?.[fuel];
                     const difference = station.isOwn
@@ -168,10 +166,12 @@ export default function CompetitorTable({
                     return (
                       <div className="fuel-cell" key={fuel}>
                         <span>{fuelLabels[fuel]}</span>
-                        <strong>{Number.isFinite(price) ? `${price.toFixed(1)}p` : '—'}</strong>
-                        <small className={difference?.className || ''}>
-                          {station.isOwn ? 'Our price' : difference?.text || '—'}
-                        </small>
+                        <div className="fuel-cell-values">
+                          <strong>{Number.isFinite(price) ? `${price.toFixed(1)}p` : '—'}</strong>
+                          <small className={difference?.className || ''}>
+                            {station.isOwn ? 'Our price' : difference?.text || '—'}
+                          </small>
+                        </div>
                       </div>
                     );
                   })}
