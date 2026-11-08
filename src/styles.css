@@ -602,3 +602,16 @@ select {
 .admin-unlock .simulation-device-option input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin: 0; padding: 0; letter-spacing: normal; }
 .simulation-device-option span { min-width: 0; overflow-wrap: anywhere; }
 .simulation-device-option small { display: block; margin-top: 3px; }
+
+/* Independent simulation results, retained on the admin device for 24 hours. */
+.simulation-history { margin-top: 14px; display: grid; gap: 8px; }
+.simulation-history > strong { font-size: 13px; }
+.simulation-history > small { font-size: 11px; color: #667085; }
+.simulation-history-entry { border: 1px solid #d0d5dd; border-radius: 10px; overflow: hidden; }
+.simulation-history-entry > summary { cursor: pointer; display: grid; gap: 3px; padding: 11px; background: #f9fafb; font-size: 12px; font-weight: 750; }
+.simulation-history-entry > summary small { color: #667085; font-weight: 400; }
+.simulation-history-content { display: grid; gap: 9px; padding: 10px; font-size: 12px; }
+.simulation-history-content > button { min-height: 40px; border: 1px solid #98a2b3; border-radius: 9px; background: #fff; font-weight: 700; cursor: pointer; }
+.simulation-history-content > button:disabled { opacity: .5; cursor: default; }
+.simulation-history-device { display: grid; gap: 3px; border: 1px solid #eaecf0; padding: 8px; border-radius: 8px; }
+.simulation-history-device span { color: #475467; }
