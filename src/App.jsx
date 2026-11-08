@@ -118,6 +118,9 @@ function formatUpdated(value) {
 }
 
 export default function App() {
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
   const [defaultSiteId, setDefaultSiteId] = useState(readDefaultSite);
   const [notificationAlert, setNotificationAlert] = useState(readNotificationAlert);
   const [siteId, setSiteId] = useState(() => readNotificationAlert()?.siteId || readDefaultSite());
@@ -169,6 +172,58 @@ export default function App() {
     Number(simulationNewPrice) <= 300 &&
     Math.abs(Number(simulationOldPrice) - Number(simulationNewPrice)) >= 0.05 &&
     selectedSimulationDevices.length > 0;
+
+  // Compare the currently loaded build with the latest GitHub Pages deploy.
+  // This is an in-app check only; no update push notifications are sent.
+  useEffect(() => {
+    let active = true;
+    const checkForUpdate = async () => {
+      try {
+        const url = new URL(`${import.meta.env.BASE_URL}app-version.json`, window.location.origin);
+        url.searchParams.set('check', String(Date.now()));
+        const response = await fetch(url.href, { cache: 'no-store' });
+        if (!response.ok) return;
+        const manifest = await response.json();
+        if (active && typeof manifest.buildId === 'string' && manifest.buildId &&
+            manifest.buildId !== __APP_BUILD_ID__) {
+          setUpdateAvailable(true);
+        }
+      } catch {
+        // An offline or failed check must not interfere with fuel prices.
+      }
+    };
+    const checkWhenVisible = () => {
+      if (document.visibilityState === 'visible') void checkForUpdate();
+    };
+    void checkForUpdate();
+    const intervalId = window.setInterval(checkForUpdate, 5 * 60 * 1000);
+    window.addEventListener('focus', checkWhenVisible);
+    document.addEventListener('visibilitychange', checkWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', checkWhenVisible);
+      document.removeEventListener('visibilitychange', checkWhenVisible);
+    };
+  }, []);
+
+  const installLatestApp = async () => {
+    if (updateBusy) return;
+    setUpdateBusy(true);
+    try {
+      // Refresh the worker when possible, but don't block loading the newest
+      // HTML if the worker update request fails.
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration(import.meta.env.BASE_URL);
+        if (registration) await registration.update().catch(() => {});
+      }
+    } catch {
+      // Continue with a cache-busted navigation.
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('app-refresh', String(Date.now()));
+    window.location.replace(url.href);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -605,6 +660,23 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {updateAvailable && !updateDismissed && (
+        <section className="app-update-banner" role="status" aria-label="App update available">
+          <div className="app-update-copy">
+            <strong>New app version available</strong>
+            <span>Refresh to get the latest improvements. Your settings and starred competitors will stay saved.</span>
+          </div>
+          <div className="app-update-actions">
+            <button type="button" className="app-update-later"
+              onClick={() => setUpdateDismissed(true)} disabled={updateBusy}>Later</button>
+            <button type="button" className="app-update-now"
+              onClick={installLatestApp} disabled={updateBusy}>
+              {updateBusy ? 'Updating…' : 'Refresh app'}
+            </button>
+          </div>
+        </section>
+      )}
 
       {pushState.subscribed && <div className="device-code">This phone's test code: <strong>{getDeviceCode().slice(0, 8)}</strong></div>}
       {pushMessage && <div className="push-message">{pushMessage}</div>}
