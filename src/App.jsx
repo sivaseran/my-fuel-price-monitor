@@ -178,7 +178,15 @@ export default function App() {
     const handleAlertLink = () => showAlert(readNotificationAlert());
     const handleWorkerMessage = (event) => {
       if (event.data?.type !== 'fuel-price-alert-open') return;
-      showAlert(normaliseNotificationAlert(event.data.details));
+      const incoming = normaliseNotificationAlert(event.data.details);
+      if (!incoming) return;
+      // Keep the URL in sync so a later iOS focus event cannot restore
+      // an older notification's details over the one just tapped.
+      const hash = '#price-alert=' + encodeURIComponent(JSON.stringify(incoming));
+      if (window.location.hash !== hash) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+      }
+      showAlert(incoming);
     };
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') handleAlertLink();
