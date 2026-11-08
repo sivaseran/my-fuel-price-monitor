@@ -173,6 +173,7 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     let latestCheck = 0;
+    let checkPromise = null;
     const showAlert = (incoming, id = null) => {
       if (!alive || !incoming) return;
       if (id) {
@@ -184,7 +185,9 @@ export default function App() {
       setNotificationAlert(incoming);
       setSiteId(incoming.siteId);
     };
-    const handleAlertLink = async () => {
+    const handleAlertLink = () => {
+      if (checkPromise) return checkPromise;
+      checkPromise = (async () => {
       const check = ++latestCheck;
       // Pending tap takes precedence over an older URL/hash on resumed iOS PWAs.
       const pending = await consumePendingAlert();
@@ -207,6 +210,8 @@ export default function App() {
         return;
       }
       showAlert(readNotificationAlert());
+      })().finally(() => { checkPromise = null; });
+      return checkPromise;
     };
     const handleWorkerMessage = (event) => {
       if (event.data?.type !== 'fuel-price-alert-open') return;
