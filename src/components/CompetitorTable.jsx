@@ -79,7 +79,6 @@ export default function CompetitorTable({
       }
       return a.distanceMiles - b.distanceMiles;
     });
-    rows.unshift(ownRow);
   }
 
   const ownRank = fuelView !== 'all'
@@ -97,7 +96,7 @@ export default function CompetitorTable({
           <h2>{fuelView === 'all' ? 'Nearby stations' : `${fuelLabels[fuelView]} price order`}</h2>
           <p>
             {fuelView === 'all'
-              ? 'Your store is shown first for quick reference.'
+              ? 'Competitors only. Your prices are shown above.'
               : 'Your store stays in its true price position.'}
           </p>
         </div>
